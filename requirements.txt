@@ -1,0 +1,8 @@
+PySide6-Essentials>=6.7
+xxhash>=3.4
+Send2Trash>=1.8
+Pillow>=10.0
+pillow-heif>=0.16
+mutagen>=1.47
+watchdog>=4.0
+pywin32>=306

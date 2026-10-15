@@ -1,0 +1,430 @@
+"""Lecture des métadonnées : EXIF des photos, tags audio, dates des vidéos, analyse des noms."""
+
+from __future__ import annotations
+
+import datetime as _dt
+import logging
+import re
+import struct
+import time
+
+from .fsutil import xp
+
+log = logging.getLogger(__name__)
+
+_MIN_TS = _dt.datetime(1985, 1, 1).timestamp()
+
+
+def _max_ts() -> float:
+    return time.time() + 86400 * 2
+
+
+def _valid_ts(ts: float | None) -> float | None:
+    if ts is None:
+        return None
+    return ts if _MIN_TS <= ts <= _max_ts() else None
+
+
+def _parse_exif_datetime(value) -> float | None:
+    if not value:
+        return None
+    if isinstance(value, bytes):
+        value = value.decode("ascii", "ignore")
+    value = str(value).strip().replace("\x00", "")
+    m = re.match(r"(\d{4})[:\-/](\d{2})[:\-/](\d{2})[ T]?(\d{2})?:?(\d{2})?:?(\d{2})?", value)
+    if not m:
+        return None
+    try:
+        parts = [int(x) if x else 0 for x in m.groups()]
+        return _valid_ts(_dt.datetime(*parts).timestamp())
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _clean_camera(make, model) -> str | None:
+    make = str(make or "").replace("\x00", "").strip()
+    model = str(model or "").replace("\x00", "").strip()
+    if not make and not model:
+        return None
+    if model and make and model.lower().startswith(make.split()[0].lower()):
+        return model
+    if make and model:
+        # « NIKON CORPORATION » → « NIKON »
+        short = re.sub(r"\s+(CORPORATION|CORP\.?|COMPANY|CO\.,? ?LTD\.?|IMAGING|OPTICAL|INC\.?)$", "", make, flags=re.I)
+        return f"{short} {model}".strip()
+    return make or model
+
+
+# ---------------------------------------------------------------------------
+# Images
+# ---------------------------------------------------------------------------
+_PIL_READY = False
+
+
+def _ensure_pil() -> None:
+    global _PIL_READY
+    if _PIL_READY:
+        return
+    from PIL import Image  # noqa: F401
+
+    try:
+        import pillow_heif
+
+        pillow_heif.register_heif_opener()
+    except Exception:  # pragma: no cover - optionnel
+        log.info("pillow-heif indisponible : les HEIC seront classés sans EXIF")
+    Image.MAX_IMAGE_PIXELS = None
+    _PIL_READY = True
+
+
+def _tiff_exif(data: bytes, base: int = 0) -> dict:
+    """Mini-lecteur EXIF/TIFF (photos RAW, et secours pour les JPEG)."""
+    out: dict = {}
+    try:
+        order = data[base:base + 2]
+        if order == b"II":
+            e = "<"
+        elif order == b"MM":
+            e = ">"
+        else:
+            return out
+
+        def u16(off):
+            return struct.unpack_from(e + "H", data, base + off)[0]
+
+        def u32(off):
+            return struct.unpack_from(e + "I", data, base + off)[0]
+
+        def read_ifd(off):
+            entries = {}
+            count = u16(off)
+            if count > 512:
+                return entries
+            for i in range(count):
+                p = off + 2 + i * 12
+                tag, typ, cnt = u16(p), u16(p + 2), u32(p + 4)
+                if typ == 2:  # ASCII
+                    voff = p + 8 if cnt <= 4 else u32(p + 8)
+                    entries[tag] = data[base + voff: base + voff + cnt].split(b"\x00")[0].decode("latin-1", "ignore")
+                elif typ == 4:
+                    entries[tag] = u32(p + 8)
+                elif typ == 3:
+                    entries[tag] = u16(p + 8)
+            return entries
+
+        ifd0 = read_ifd(u32(4))
+        out["make"] = ifd0.get(271)
+        out["model"] = ifd0.get(272)
+        out["datetime"] = ifd0.get(306)
+        exif_ptr = ifd0.get(0x8769)
+        if exif_ptr:
+            exif = read_ifd(exif_ptr)
+            out["original"] = exif.get(36867) or exif.get(36868)
+    except (struct.error, IndexError, ValueError):
+        pass
+    return out
+
+
+def read_image_meta(path: str, ext: str) -> dict:
+    """Date de prise de vue, appareil et dimensions."""
+    from .filetypes import RAW_EXT
+
+    meta: dict = {}
+    if ext in RAW_EXT and ext not in ("cr3", "raf", "x3f"):
+        try:
+            with open(xp(path), "rb") as fh:
+                data = fh.read(256 * 1024)
+            info = _tiff_exif(data)
+            meta["exif_date"] = _parse_exif_datetime(info.get("original") or info.get("datetime"))
+            meta["camera"] = _clean_camera(info.get("make"), info.get("model"))
+        except OSError as exc:
+            meta["error"] = str(exc)
+        return {k: v for k, v in meta.items() if v is not None}
+
+    _ensure_pil()
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(xp(path)) as im:
+            meta["width"], meta["height"] = im.size
+            meta["format"] = im.format
+            exif = im.getexif()
+            if exif:
+                sub = {}
+                try:
+                    sub = exif.get_ifd(0x8769) or {}
+                except Exception:
+                    sub = {}
+                meta["exif_date"] = _parse_exif_datetime(sub.get(36867) or sub.get(36868) or exif.get(306))
+                meta["camera"] = _clean_camera(exif.get(271), exif.get(272))
+                if exif.get(305):
+                    meta["software"] = str(exif.get(305)).strip("\x00 ")[:60]
+    except (UnidentifiedImageError, OSError, ValueError, SyntaxError, struct.error) as exc:
+        meta["error"] = str(exc)[:200]
+    except Exception as exc:  # fichiers corrompus : ne jamais planter
+        meta["error"] = f"{type(exc).__name__}: {exc}"[:200]
+    return {k: v for k, v in meta.items() if v is not None}
+
+
+# ---------------------------------------------------------------------------
+# Audio
+# ---------------------------------------------------------------------------
+def _first(tags, *keys):
+    for key in keys:
+        try:
+            value = tags.get(key)
+        except Exception:
+            value = None
+        if value:
+            if isinstance(value, (list, tuple)):
+                value = value[0] if value else None
+            if value is not None:
+                text = str(value).replace("\x00", "").strip()
+                if text:
+                    return text
+    return None
+
+
+def _num(value) -> int | None:
+    if value is None:
+        return None
+    m = re.match(r"\s*(\d+)", str(value))
+    return int(m.group(1)) if m else None
+
+
+def read_audio_meta(path: str) -> dict:
+    import mutagen
+
+    meta: dict = {}
+    audio = None
+    try:
+        audio = mutagen.File(xp(path), easy=True)
+    except Exception as exc:
+        meta["error"] = str(exc)[:200]
+    if audio is None and path.lower().endswith(".mp3"):
+        try:
+            from mutagen.easyid3 import EasyID3
+
+            audio = EasyID3(xp(path))
+        except Exception:
+            audio = None
+    if audio is None:
+        return meta
+    tags = audio.tags if hasattr(audio, "tags") and not isinstance(audio, dict) else audio
+    if tags is None and hasattr(audio, "get"):
+        tags = audio
+    if tags is not None:
+        meta["artist"] = _first(tags, "artist", "performer")
+        meta["albumartist"] = _first(tags, "albumartist", "album artist", "band")
+        meta["album"] = _first(tags, "album")
+        meta["title"] = _first(tags, "title")
+        meta["track"] = _num(_first(tags, "tracknumber", "track"))
+        meta["disc"] = _num(_first(tags, "discnumber", "disc"))
+        meta["genre"] = _first(tags, "genre")
+        year = _num(_first(tags, "date", "originaldate", "year"))
+        if year and 1000 <= year <= 2200:
+            meta["year"] = year
+    info = getattr(audio, "info", None)
+    if info is not None and getattr(info, "length", None):
+        meta["duration"] = round(float(info.length), 1)
+    return {k: v for k, v in meta.items() if v is not None}
+
+
+# ---------------------------------------------------------------------------
+# Vidéos (date de création stockée dans le conteneur MP4/MOV)
+# ---------------------------------------------------------------------------
+_MP4_EPOCH = 2082844800  # secondes entre 1904 et 1970
+
+
+def read_video_meta(path: str, ext: str) -> dict:
+    meta: dict = {}
+    if ext not in ("mp4", "m4v", "mov", "3gp", "3g2", "qt"):
+        return meta
+    try:
+        with open(xp(path), "rb") as fh:
+            fh.seek(0, 2)
+            end = fh.tell()
+            pos = 0
+            for _ in range(64):  # nombre de boîtes de premier niveau parcourues
+                if pos + 8 > end:
+                    break
+                fh.seek(pos)
+                header = fh.read(16)
+                size, typ = struct.unpack(">I4s", header[:8])
+                hdr = 8
+                if size == 1:
+                    size = struct.unpack(">Q", header[8:16])[0]
+                    hdr = 16
+                elif size == 0:
+                    size = end - pos
+                if size < hdr:
+                    break
+                if typ == b"moov":
+                    _parse_moov(fh, pos + hdr, min(pos + size, end), meta)
+                    break
+                pos += size
+    except (OSError, struct.error) as exc:
+        meta["error"] = str(exc)[:200]
+    return meta
+
+
+def _parse_moov(fh, start: int, stop: int, meta: dict) -> None:
+    pos = start
+    for _ in range(64):
+        if pos + 8 > stop:
+            return
+        fh.seek(pos)
+        size, typ = struct.unpack(">I4s", fh.read(8))
+        if size < 8:
+            return
+        if typ == b"mvhd":
+            body = fh.read(min(size - 8, 32))
+            version = body[0]
+            if version == 1:
+                created = struct.unpack(">Q", body[4:12])[0]
+                timescale, duration = struct.unpack(">IQ", body[20:32])
+            else:
+                created = struct.unpack(">I", body[4:8])[0]
+                timescale, duration = struct.unpack(">II", body[12:20])
+            if created:
+                meta["media_date"] = _valid_ts(created - _MP4_EPOCH)
+            if timescale:
+                meta["duration"] = round(duration / timescale, 1)
+            return
+        pos += size
+
+
+# ---------------------------------------------------------------------------
+# Analyse des noms de fichiers
+# ---------------------------------------------------------------------------
+CAMERA_NAME_RE = re.compile(
+    r"^(IMG|DSC|DSCN|DSCF|DSC_|PXL|MVI|VID|MOV|GOPR|GP\d|GH\d|GX\d|GS\d|DJI|P\d{7}|PANO|BURST|MMEXPORT|WP_\d|IMAG\d|"
+    r"SAM_|CIMG|PICT|HPIM|KIF|_MG|_DSC|_IMG|PHOTO[-_ ]\d|WHATSAPP (IMAGE|VIDEO)|SNAPCHAT-|SIGNAL-|"
+    r"(IMG|VID)-\d{8}-WA|\d{8}_\d{6}|\d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.\d{2})",
+    re.I,
+)
+SCREENSHOT_NAME_RE = re.compile(
+    r"(screenshot|screen ?shot|capture d.?[ée]cran|^capture|bildschirmfoto|schermata|captura de pantalla|"
+    r"^snip|screen[ _-]?recording|enregistrement d.?[ée]cran|^scr_|^screen_|^scrn|^snapshot|^schermafbeelding)",
+    re.I,
+)
+RECORDING_NAME_RE = re.compile(
+    r"(recording|enregistrement|voice|vocal|memo|m[ée]mo|^ptt-|^aud-|^rec_|^record|dictaphone|^audio_)", re.I
+)
+_DATE_IN_NAME_RE = re.compile(
+    r"(?<!\d)(19[89]\d|20\d{2})[-_. ]?(0[1-9]|1[0-2])[-_. ]?(0[1-9]|[12]\d|3[01])(?!\d)"
+    r"(?:[ _T\-.at]{0,4}([01]\d|2[0-3])[-_.h: ]?([0-5]\d)[-_.m: ]?([0-5]\d)?)?",
+    re.I,
+)
+
+SCREEN_SIZES = {
+    (1920, 1080), (2560, 1440), (3840, 2160), (1366, 768), (1280, 720), (1600, 900), (1440, 900), (1280, 800),
+    (1680, 1050), (1920, 1200), (2560, 1600), (2880, 1800), (3024, 1964), (3456, 2234), (2736, 1824),
+    (3000, 2000), (2256, 1504), (2560, 1080), (3440, 1440), (5120, 1440), (1280, 1024), (1024, 768),
+    (1360, 768), (1536, 864), (2048, 1152), (2160, 1440), (2496, 1664), (2880, 1920), (3200, 1800),
+    (1170, 2532), (1179, 2556), (1284, 2778), (1290, 2796), (1080, 2400), (1080, 2340), (1440, 3200),
+    (750, 1334), (1242, 2688), (828, 1792), (1125, 2436), (1080, 1920), (1440, 2560), (1536, 2048),
+    (1620, 2160), (2048, 2732), (1668, 2388), (1640, 2360), (1488, 2266), (1080, 2408), (1080, 2412),
+    (1220, 2712), (1260, 2800), (1344, 2992), (1206, 2622), (1320, 2868), (720, 1600), (720, 1520),
+}
+
+
+def is_camera_name(stem: str) -> bool:
+    return bool(CAMERA_NAME_RE.search(stem))
+
+
+def is_screenshot_name(stem: str) -> bool:
+    return bool(SCREENSHOT_NAME_RE.search(stem))
+
+
+def is_recording_name(stem: str) -> bool:
+    return bool(RECORDING_NAME_RE.search(stem))
+
+
+def is_screen_size(width: int | None, height: int | None) -> bool:
+    if not width or not height:
+        return False
+    return (width, height) in SCREEN_SIZES or (height, width) in SCREEN_SIZES
+
+
+def date_from_name(stem: str) -> float | None:
+    """Date contenue dans le nom (IMG_20240312_143200, Screenshot 2024-03-12…)."""
+    for m in _DATE_IN_NAME_RE.finditer(stem):
+        y, mo, d, hh, mm, ss = m.groups()
+        try:
+            dt = _dt.datetime(int(y), int(mo), int(d), int(hh or 0), int(mm or 0), int(ss or 0))
+        except ValueError:
+            continue
+        ts = _valid_ts(dt.timestamp())
+        if ts:
+            return ts
+    return None
+
+
+# --- Séries et films ---------------------------------------------------------
+_SERIES_PATTERNS = [
+    re.compile(r"^(?P<show>.*?)[\s._\-\[(]*\bS(?P<season>\d{1,2})[\s._-]*E(?P<ep>\d{1,3})(?!\d)", re.I),
+    re.compile(r"^(?P<show>.*?)[\s._\-\[(]+(?P<season>\d{1,2})x(?P<ep>\d{2,3})(?!\d)", re.I),
+    re.compile(
+        r"^(?P<show>.*?)[\s._\-]*\b(?:saison|season|staffel|temporada)[\s._-]*(?P<season>\d{1,2})"
+        r"[\s._\-,]*(?:e|ep|episode|épisode|folge)[\s._-]*(?P<ep>\d{1,3})(?!\d)",
+        re.I,
+    ),
+]
+_RELEASE_TAGS = re.compile(
+    r"(?<![a-z0-9])(2160p|1080p|720p|576p|480p|4k|uhd|bluray|blu-ray|bdrip|brrip|bdremux|webrip|web-dl|webdl|"
+    r"hdrip|dvdrip|dvdscr|hdtv|x264|x265|h\.?264|h\.?265|hevc|xvid|divx|10bit|hdr10?|remux|multi|vff|vfq|vf2|"
+    r"vostfr|truefrench|french|subfrench|ac3|dts|aac|imax|extended|unrated|proper|repack|amzn|nf|dsnp|hmax)"
+    r"(?![a-z0-9])",
+    re.I,
+)
+_YEAR_TOKEN = re.compile(r"(?<![0-9a-z])[(\[]?(19[2-9]\d|20[0-4]\d)[)\]]?(?![0-9a-z])", re.I)
+_SEASON_DIR = re.compile(r"^(saison|season|staffel|temporada|s)[\s._-]*\d{1,2}$", re.I)
+_LEADING_TAG = re.compile(r"^\s*[\[(][^\])]{1,40}[\])]\s*")
+
+
+def clean_title(text: str) -> str:
+    text = _LEADING_TAG.sub("", text)
+    text = re.sub(r"[._]+", " ", text)
+    text = re.sub(r"\s+-\s*$", "", text)
+    text = re.sub(r"[\s\-\[(]+$", "", text)
+    text = re.sub(r"\s{2,}", " ", text).strip(" -")
+    if text and (text.islower() or text.isupper()):
+        text = text.title()
+    return text
+
+
+def parse_series(stem: str, parent_dir: str = "", grand_dir: str = "") -> dict | None:
+    for pattern in _SERIES_PATTERNS:
+        m = pattern.search(stem)
+        if not m:
+            continue
+        show = clean_title(m.group("show"))
+        if not show:
+            folder = parent_dir
+            if _SEASON_DIR.match(folder or ""):
+                folder = grand_dir
+            show = clean_title(folder or "")
+        return {"series": show or None, "season": int(m.group("season")), "episode": int(m.group("ep"))}
+    return None
+
+
+def parse_movie(stem: str, size: int) -> dict | None:
+    """Reconnaît « Titre (2010) » ou « Titre.2010.1080p.BluRay ». Prudent pour éviter « Vacances 2019 »."""
+    tags = _RELEASE_TAGS.search(stem)
+    head = stem[: tags.start()] if tags else stem
+    big = size >= 300 * 1024 * 1024
+    best = None
+    for m in _YEAR_TOKEN.finditer(head):  # on garde la dernière année (« Blade Runner 2049 (2017) »)
+        title = clean_title(head[: m.start()])
+        if title:
+            best = (title, int(m.group(1)), m.group(0)[0] in "([")
+    if best:
+        title, year, in_parens = best
+        if tags or (in_parens and big):
+            return {"title": title, "release_year": year}
+    if tags and big:
+        title = clean_title(head)
+        if title:
+            return {"title": title}
+    return None

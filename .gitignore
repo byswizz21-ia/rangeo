@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+.pytest_cache/
+test_data/
+*.spec.bak
+.pytest_tmp/
+.smoke/
