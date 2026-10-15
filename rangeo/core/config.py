@@ -53,6 +53,11 @@ DEFAULT_SETTINGS: dict = {
     "last_destination": "",
     "last_profile": "general",
     "ask_tray_once": True,
+    "schedules": [],
+    "devices": [],
+    "devices_ask_unknown": True,
+    "context_menu": False,
+    "analysis_old_years": 3,
 }
 
 
@@ -68,6 +73,32 @@ def _atomic_write(path: Path, data) -> None:
         except OSError:
             pass
     os.replace(tmp, path)
+
+
+def _is_yaml(path) -> bool:
+    return str(path).lower().endswith((".yaml", ".yml"))
+
+
+def _write_any(path, data) -> None:
+    """Écrit en JSON, ou en YAML si le fichier se termine par .yaml / .yml."""
+    if _is_yaml(path):
+        import yaml
+
+        tmp = str(path) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            yaml.safe_dump(data, fh, allow_unicode=True, sort_keys=False)
+        os.replace(tmp, path)
+    else:
+        _atomic_write(Path(path), data)
+
+
+def _read_any(path):
+    with open(path, encoding="utf-8") as fh:
+        if _is_yaml(path):
+            import yaml
+
+            return yaml.safe_load(fh)
+        return json.load(fh)
 
 
 def _load_json(path: Path):
@@ -174,11 +205,10 @@ class Config:
     def export_all(self, path: str) -> None:
         with self._lock:
             data = {"app": "Rangeo", "settings": self.settings, "profiles": self.profiles}
-        _atomic_write(Path(path), data)
+        _write_any(path, data)
 
     def import_all(self, path: str) -> None:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
+        data = _read_any(path)
         if not isinstance(data, dict) or data.get("app") != "Rangeo":
             raise ValueError("not_rangeo_file")
         with self._lock:
@@ -193,11 +223,10 @@ class Config:
 
     @staticmethod
     def export_profile(profile: dict, path: str) -> None:
-        _atomic_write(Path(path), {"app": "Rangeo", "profile": profile})
+        _write_any(path, {"app": "Rangeo", "profile": profile})
 
     def import_profile(self, path: str) -> dict:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
+        data = _read_any(path)
         if not isinstance(data, dict) or "profile" not in data:
             raise ValueError("not_rangeo_file")
         from .rules import new_id

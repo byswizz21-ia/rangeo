@@ -1,4 +1,9 @@
+import os
 import sys
+
+if __package__ in (None, ""):
+    # lancé comme script (tâches planifiées, menu clic droit en version code source)
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from rangeo.app import main
 
