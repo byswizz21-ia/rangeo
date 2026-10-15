@@ -22,7 +22,6 @@ from . import filetypes as ft
 from . import metadata as md
 from .fsutil import (
     FILE_ATTRIBUTE_HIDDEN,
-    FILE_ATTRIBUTE_REPARSE_POINT,
     FILE_ATTRIBUTE_SYSTEM,
     creation_time,
     disk_kind,
@@ -288,7 +287,7 @@ class Scanner:
                         node.software = True
                         if lname in (".egstore", "steamapps"):
                             node.strong_software = True
-                    if attrs & FILE_ATTRIBUTE_REPARSE_POINT or de.is_symlink():
+                    if de.is_symlink() or de.is_junction():
                         self._skip(path, "link")
                         continue
                     if self.matcher.match(path, lname):

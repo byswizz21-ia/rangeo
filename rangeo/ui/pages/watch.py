@@ -98,9 +98,12 @@ class WatchPage(ScrollPage):
         self.activity.add(self.activity_box)
         b.addWidget(self.activity)
         b.addStretch(1)
-        ctx.watchEvent.connect(lambda _e: self._fill_activity())
+        ctx.watchEvent.connect(self._on_watch_event)
         ctx.configChanged.connect(self._fill_rows)
         self._fill_rows()
+        self._fill_activity()
+
+    def _on_watch_event(self, _event) -> None:
         self._fill_activity()
 
     def showEvent(self, event) -> None:

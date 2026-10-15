@@ -241,6 +241,7 @@
   "plan.renamed_conflict": "Renommé car un fichier du même nom existe",
   "plan.companion": "Suit son fichier principal",
   "plan.companion_stays": "Fichier annexe qui reste avec son fichier principal",
+  "plan.cloud_only": "Fichier en ligne (OneDrive…) non téléchargé : le copier vers un autre disque le téléchargerait. Cochez-le si vous le voulez.",
   "plan.not_enough_space": "Pas assez d'espace libre sur le disque de destination",
 
   "op.move": "Déplacement",

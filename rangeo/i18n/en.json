@@ -241,6 +241,7 @@
   "plan.renamed_conflict": "Renamed because a file with the same name exists",
   "plan.companion": "Follows its main file",
   "plan.companion_stays": "Companion file staying with its main file",
+  "plan.cloud_only": "Online-only file (OneDrive…): copying it to another drive would download it. Check it if you want to.",
   "plan.not_enough_space": "Not enough free space on the destination drive",
 
   "op.move": "Move",

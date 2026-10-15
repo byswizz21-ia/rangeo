@@ -101,7 +101,7 @@ de Rangeo et `%APPDATA%\Rangeo`.
 ## 6. Pour le développement
 
 ```
-.venv\Scripts\python.exe -m pytest              # 28 tests (dont reprise après crash, annulation octet par octet)
+.venv\Scripts\python.exe -m pytest              # 29 tests (dont reprise après crash, annulation octet par octet)
 .venv\Scripts\python.exe tools\benchmark.py 100000   # mesure des performances
 .venv\Scripts\python.exe tools\ui_screenshots.py     # captures de toutes les pages
 ```

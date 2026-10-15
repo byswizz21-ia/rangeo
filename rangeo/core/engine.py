@@ -158,10 +158,11 @@ class Engine:
     def find_duplicates(self, sources: list[str], control: TaskControl,
                         recursive: bool = True) -> tuple[ScanResult, list[dup_mod.DupGroup]]:
         cfg = self.config
+        dup_name = cfg.get("duplicates_folder") or FOLDERS[self.lang]["duplicates"]
         options = ScanOptions(
             recursive=recursive,
             skip_hidden=cfg.get("skip_hidden", True),
-            exclusions=cfg.get("exclusions", []) + [QUARANTINE_DIR],
+            exclusions=cfg.get("exclusions", []) + [QUARANTINE_DIR, dup_name],
             detect_bundles=cfg.get("detect_bundles", True),
             keep_whole=cfg.get("keep_whole") or [],
             extra_protected=cfg.get("protected", []),

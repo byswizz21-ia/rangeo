@@ -17,7 +17,7 @@ PROBLEM_NOTES = {
     "plan.target_in_moving_folder", "plan.protected_target", "plan.into_itself", "plan.path_too_long",
     "plan.target_is_file", "plan.contains_destination",
 }
-INFO_NOTES = {"plan.renamed_conflict", "plan.identical_to_duplicates", "plan.identical_trashed",
+INFO_NOTES = {"plan.cloud_only", "plan.renamed_conflict", "plan.identical_to_duplicates", "plan.identical_trashed",
               "plan.replaces_existing", "plan.conflict_loser_trashed", "plan.companion"}
 
 

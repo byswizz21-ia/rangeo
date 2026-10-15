@@ -494,6 +494,10 @@ class Planner:
             src_vol = self.cache.volume(os.path.dirname(op.src))
             dst_vol = self.cache.volume(os.path.dirname(op.dst))
             op.cross_volume = op.op == OP_COPY or src_vol is None or src_vol != dst_vol
+            if op.cross_volume and op.entry is not None and op.entry.meta.get("cloud") and not op.note:
+                # le copier vers un autre disque obligerait à le télécharger depuis le cloud
+                op.enabled = False
+                op.note = "plan.cloud_only"
             if op.cross_volume:
                 if op.is_dir and op.entry is not None and op.entry.meta.get("size_partial"):
                     size, count = _bundle_size(op.src, self.control)
