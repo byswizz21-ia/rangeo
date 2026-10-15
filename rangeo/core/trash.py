@@ -199,9 +199,14 @@ def restore(original: str, info: dict, target: str | None = None) -> str:
         os.rename(xp(info["qpath"]), xp(target))
         _cleanup_empty_quarantine(info["qpath"])
         return target
-    found = find_in_recycle_bin(original, float(info.get("time", 0)))
+    found = None
+    for _ in range(25):  # Windows écrit parfois l'entrée de la corbeille avec un léger délai
+        found = find_in_recycle_bin(original, float(info.get("time", 0)))
+        if found:
+            break
+        time.sleep(0.2)
     if not found:
-        raise FileNotFoundError("not_in_recycle_bin")
+        raise FileNotFoundError(2, "not_in_recycle_bin", original)
     rpath, ipath = found
     os.rename(xp(rpath), xp(target))
     try:

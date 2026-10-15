@@ -189,7 +189,7 @@ class FolderWatcher:
                         op.enabled = False
             result = self.engine.execute(plan, control, kind="watch", profile=profile.get("name", ""),
                                          cleanup=False)
-            event = WatchEvent(time.time(), self.folder, result.done, result.failed, result.session_id,
+            event = WatchEvent(time.time(), self.folder, result.files, result.failed, result.session_id,
                                files=[os.path.basename(op.src) for op in plan.active_ops()][:20])
             if self.on_event:
                 try:

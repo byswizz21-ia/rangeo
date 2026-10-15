@@ -109,12 +109,17 @@ class _DirCache:
         return result
 
     def volume(self, folder: str) -> int | None:
+        """Volume d'un dossier (existant ou à créer : on regarde son plus proche parent existant)."""
         key = nkey(folder)
         if key not in self.vol:
-            try:
-                self.vol[key] = volume_id(folder)
-            except OSError:
-                self.vol[key] = None
+            parent = os.path.dirname(folder)
+            if parent != folder and not os.path.isdir(xp(folder)):
+                self.vol[key] = self.volume(parent)
+            else:
+                try:
+                    self.vol[key] = volume_id(folder)
+                except OSError:
+                    self.vol[key] = None
         return self.vol[key]
 
 
@@ -144,7 +149,9 @@ def _bundle_size(path: str, control: TaskControl) -> tuple[int, int]:
 class Planner:
     def __init__(self, rules: list[dict], options: PlanOptions, control: TaskControl | None = None):
         self.rules = rules
+        self.compiled = rules_mod.compile_rules(rules)
         self.opt = options
+        self._protected: dict[str, bool] = {}
         self.control = control or TaskControl()
         self.protection = Protection(options.extra_protected)
         self.cache = _DirCache()
@@ -257,7 +264,7 @@ class Planner:
 
     def _plan_entry(self, entry: FileEntry, result: Plan) -> PlannedOp | None:
         opt = self.opt
-        decision = rules_mod.decide(entry, self.rules)
+        decision = rules_mod.decide_compiled(entry, self.compiled)
         if decision is None:
             result.skipped.append(PlannedOp(OP_SKIP, entry.path, None, entry.size, entry, "", "plan.no_rule"))
             return None
@@ -312,7 +319,12 @@ class Planner:
         dst = op.dst
         if nkey(dst) == nkey(entry.path):
             return "plan.already_sorted"
-        if self.protection.is_protected(dst):
+        folder_key = nkey(os.path.dirname(dst))
+        protected = self._protected.get(folder_key)
+        if protected is None:
+            protected = self.protection.is_protected(os.path.dirname(dst))
+            self._protected[folder_key] = protected
+        if protected:
             return "plan.protected_target"
         if entry.is_bundle and is_within(dst, entry.path):
             return "plan.into_itself"
@@ -480,7 +492,7 @@ class Planner:
             if not op.enabled or op.dst is None or op.op not in (OP_MOVE, OP_COPY):
                 continue
             src_vol = self.cache.volume(os.path.dirname(op.src))
-            dst_vol = self.cache.volume(existing_ancestor(os.path.dirname(op.dst)))
+            dst_vol = self.cache.volume(os.path.dirname(op.dst))
             op.cross_volume = op.op == OP_COPY or src_vol is None or src_vol != dst_vol
             if op.cross_volume:
                 if op.is_dir and op.entry is not None and op.entry.meta.get("size_partial"):

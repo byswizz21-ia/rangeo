@@ -297,3 +297,29 @@ def test_real_recycle_bin_roundtrip(tmp_path):
     else:
         trash.restore(str(f), info)
     assert f.read_text() == "à restaurer"
+
+
+def test_crash_then_undo_without_resume(engine, tmp_path, monkeypatch):
+    """Coupure en plein rangement, puis « Tout annuler » : tout doit revenir, même les opérations non notées."""
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    dataset.make_dataset(src)
+    before = snapshot(src)
+    scan, plan = engine.analyze(_request(engine, src, dst), TaskControl())
+    real_move = fileops.move_file
+    calls = {"n": 0}
+
+    def crashing_move(*a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 20:
+            engine.journal._pending.clear()  # les dernières écritures du journal sont perdues
+            raise KeyboardInterrupt()
+        return real_move(*a, **kw)
+
+    monkeypatch.setattr(fileops, "move_file", crashing_move)
+    with pytest.raises(KeyboardInterrupt):
+        Executor(engine.journal, TaskControl(), ExecOptions(threads=1)).run_plan(plan)
+    monkeypatch.setattr(fileops, "move_file", real_move)
+    sid = engine.journal.unfinished_sessions()[0].id
+    undo = engine.undo(sid, TaskControl())
+    assert undo.failed == 0, undo.errors
+    assert snapshot(src) == before

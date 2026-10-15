@@ -452,6 +452,60 @@ def normalize_rule(rule: dict) -> dict:
     return out
 
 
+_GETTERS = {
+    "name": lambda e: e.name,
+    "stem": lambda e: e.stem,
+    "ext": lambda e: e.ext,
+    "kind": lambda e: e.kind,
+    "group": lambda e: ft.group_of(e.kind),
+}
+
+
+def compile_condition(cond: dict):
+    """Transforme une condition en fonction rapide (évaluée des millions de fois)."""
+    if "conditions" in cond:
+        return compile_group(cond.get("match", "all"), cond["conditions"])
+    fname, op, value = cond.get("field", ""), cond.get("op", ""), cond.get("value")
+    getter = _GETTERS.get(fname)
+    if getter is not None and op in ("is", "equals", "is_not", "not_equals"):
+        wanted = "" if value is None else str(value).lower()
+        if fname == "ext":
+            wanted = wanted.lstrip(".")
+        if op in ("is", "equals"):
+            return lambda e: (getter(e) or "").lower() == wanted
+        return lambda e: (getter(e) or "").lower() != wanted
+    if getter is not None and op in ("in_list", "not_in_list"):
+        items = frozenset(_split_list(value))
+        if op == "in_list":
+            return lambda e: (getter(e) or "").lower().lstrip(".") in items
+        return lambda e: (getter(e) or "").lower().lstrip(".") not in items
+    return lambda e: eval_condition(e, cond)
+
+
+def compile_group(match: str, conditions: list[dict]):
+    preds = [compile_condition(c) for c in conditions or []]
+    if not preds:
+        return lambda e: True
+    if len(preds) == 1:
+        return preds[0]
+    if match == "any":
+        return lambda e: any(p(e) for p in preds)
+    return lambda e: all(p(e) for p in preds)
+
+
+def compile_rules(rules: list[dict]) -> list[tuple[dict, object]]:
+    return [(r, compile_group(r.get("match", "all"), r.get("conditions") or []))
+            for r in rules if r.get("enabled", True)]
+
+
+def decide_compiled(entry: FileEntry, compiled: list[tuple[dict, object]]) -> Decision | None:
+    for rule, pred in compiled:
+        if pred(entry):
+            return Decision(rule.get("id", ""), rule.get("name", ""), rule.get("action", "move"),
+                            rule.get("target", ""), rule.get("rename", ""))
+    return None
+
+
 def decide(entry: FileEntry, rules: list[dict]) -> Decision | None:
     for rule in rules:
         if not rule.get("enabled", True):

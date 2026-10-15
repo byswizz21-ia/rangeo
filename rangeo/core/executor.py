@@ -117,6 +117,7 @@ class Executor:
         self.index = index
         self._dir_lock = threading.Lock()
         self._created: set[str] = set()
+        self._ready_dirs: set[str] = set()
         self._vol_lock = threading.Lock()
         self._vol: dict[str, int | None] = {}
         self._result_lock = threading.Lock()
@@ -140,13 +141,31 @@ class Executor:
             self._vol[key] = vol
         return vol
 
+    def _dst_volume(self, folder: str) -> int | None:
+        """Volume d'un dossier de destination (qui n'existe peut-être pas encore), mis en cache."""
+        key = "dst:" + nkey(folder)
+        with self._vol_lock:
+            if key in self._vol:
+                return self._vol[key]
+        try:
+            vol = volume_id(existing_ancestor(folder))
+        except OSError:
+            vol = None
+        with self._vol_lock:
+            self._vol[key] = vol
+        return vol
+
     def _same_volume(self, src: str, dst_folder: str) -> bool:
         a = self._volume(os.path.dirname(src))
-        b = self._volume(existing_ancestor(dst_folder))
+        b = self._dst_volume(dst_folder)
         return a is not None and a == b
 
     def _ensure_dir(self, folder: str, seq: int) -> None:
+        key = nkey(folder)
+        if key in self._ready_dirs:
+            return
         if os.path.isdir(xp(folder)):
+            self._ready_dirs.add(key)
             return
         missing = []
         current = folder
@@ -167,6 +186,7 @@ class Executor:
                     continue
                 self._created.add(key)
                 self.journal.add_op(self._session_id, seq, OP_MKDIR, None, path, is_dir=True, state=ST_DONE)
+            self._ready_dirs.add(nkey(folder))
 
     def _tag(self, row: jn.OpRow) -> str:
         return f"{row.session_id}-{row.id}"
@@ -231,7 +251,7 @@ class Executor:
                     fast.append(r)
                 else:
                     slow.append(r)
-            self._run_pool(fast, 6, result)
+            self._run_pool(fast, 1, result)
             self._run_pool(slow, self._copy_threads(slow), result)
             self._retry_locked(result)
             status, message = (jn.S_COMPLETED_ERRORS, "exec.done_errors") if result.failed else (
@@ -380,16 +400,18 @@ class Executor:
 
     def _move(self, row: jn.OpRow) -> tuple[dict, str]:
         src, dst = row.src, row.dst
-        if not os.path.lexists(xp(src)):
-            raise FileNotFoundError(2, "source_missing", src)
         info: dict = {}
-        if row.extra.get("replaces") and os.path.isfile(xp(dst)) and not row.is_dir:
+        if row.extra.get("replaces") and not row.is_dir and os.path.isfile(xp(dst)):
+            if not os.path.lexists(xp(src)):
+                raise FileNotFoundError(2, "source_missing", src)
             info["replaced"] = trash_mod.trash(dst, row.session_id)
         folder = os.path.dirname(dst)
         self._ensure_dir(folder, row.seq)
-        final = fileops.free_name(dst)
         same = self._same_volume(src, folder)
-        for attempt in range(3):
+        # même disque : on tente directement le renommage (Windows refuse d'écraser un fichier existant) ;
+        # entre disques : on vérifie avant, pour ne pas copier inutilement
+        final = dst if same else fileops.free_name(dst)
+        for attempt in range(50):
             try:
                 if row.is_dir:
                     def on_copied(final=final):
@@ -400,9 +422,13 @@ class Executor:
                     info.update(fileops.move_file(src, final, same, self._tag(row), self.control))
                 break
             except FileExistsError:
-                if attempt == 2:
+                if attempt == 49:
                     raise
                 final = fileops.free_name(dst)
+            except FileNotFoundError:
+                if not os.path.lexists(xp(src)):
+                    raise FileNotFoundError(2, "source_missing", src) from None
+                raise
         if final != dst:
             info["renamed_at_runtime"] = True
         if not row.is_dir:
@@ -461,7 +487,7 @@ class Executor:
             folder = os.path.dirname(r.dst)
             if r.op == OP_MOVE and self._same_volume(r.src, folder):
                 continue
-            vol = self._volume(existing_ancestor(folder))
+            vol = self._dst_volume(folder)
             if vol is None:
                 continue
             total, path = need.get(vol, (0, folder))

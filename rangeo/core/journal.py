@@ -113,6 +113,7 @@ class Journal:
         self._conn.executescript(SCHEMA)
         self._conn.commit()
         self._pending: list[tuple] = []
+        self._last_flush = time.monotonic()
 
     def close(self) -> None:
         with self._lock:
@@ -220,20 +221,29 @@ class Journal:
         with self._lock:
             self._pending.append((op_id, state, error, json.dumps(extra, ensure_ascii=False) if extra else None,
                                   dst, time.time()))
-            if immediate or len(self._pending) >= 200:
-                self.flush()
+            # écritures groupées : le plan complet est déjà enregistré de façon sûre, et la reprise
+            # vérifie de toute façon l'état réel sur le disque
+            if immediate or len(self._pending) >= 2000 or time.monotonic() - self._last_flush > 1.0:
+                self.flush(durable=immediate)
 
-    def flush(self) -> None:
+    def flush(self, durable: bool = True) -> None:
         with self._lock:
+            self._last_flush = time.monotonic()
             if not self._pending:
                 return
             pending, self._pending = self._pending, []
-            with self._conn:
-                self._conn.executemany(
-                    "UPDATE operations SET state = ?, error = ?, extra = COALESCE(?, extra), "
-                    "dst = COALESCE(?, dst), updated = ? WHERE id = ?",
-                    [(s, e, x, d, t, i) for i, s, e, x, d, t in pending],
-                )
+            if not durable:
+                self._conn.execute("PRAGMA synchronous=NORMAL")
+            try:
+                with self._conn:
+                    self._conn.executemany(
+                        "UPDATE operations SET state = ?, error = ?, extra = COALESCE(?, extra), "
+                        "dst = COALESCE(?, dst), updated = ? WHERE id = ?",
+                        [(s, e, x, d, t, i) for i, s, e, x, d, t in pending],
+                    )
+            finally:
+                if not durable:
+                    self._conn.execute("PRAGMA synchronous=FULL")
 
     def ops(self, session_id: int, states: tuple[str, ...] | None = None) -> list[OpRow]:
         with self._lock:

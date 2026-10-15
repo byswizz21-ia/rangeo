@@ -33,24 +33,44 @@ class UndoResult:
     status: str = jn.S_UNDONE
 
 
+_vol_cache: dict[str, int | None] = {}
+_ready: set[str] = set()
+
+
+def _volume(folder: str, existing: bool) -> int | None:
+    key = ("e:" if existing else "d:") + os.path.normcase(folder)
+    if key not in _vol_cache:
+        try:
+            _vol_cache[key] = volume_id(folder if existing else existing_ancestor(folder))
+        except OSError:
+            _vol_cache[key] = None
+    return _vol_cache[key]
+
+
 def _same_volume(a: str, b_folder: str) -> bool:
-    try:
-        return volume_id(os.path.dirname(a)) == volume_id(existing_ancestor(b_folder))
-    except OSError:
-        return False
+    va = _volume(os.path.dirname(a), True)
+    return va is not None and va == _volume(b_folder, False)
 
 
 def _move_back(current: str, original: str, is_dir: bool, tag: str, control: TaskControl) -> str:
     """Remet un élément à sa place d'origine (renommé « (2) » si la place est prise)."""
     folder = os.path.dirname(original)
-    os.makedirs(xp(folder), exist_ok=True)
-    target = fileops.free_name(original)
+    key = os.path.normcase(folder)
+    if key not in _ready:
+        os.makedirs(xp(folder), exist_ok=True)
+        _ready.add(key)
     same = _same_volume(current, folder)
-    if is_dir:
-        fileops.move_tree(current, target, same, tag, control)
-    else:
-        fileops.move_file(current, target, same, tag, control)
-    return target
+    target = original if same else fileops.free_name(original)
+    for _ in range(50):
+        try:
+            if is_dir:
+                fileops.move_tree(current, target, same, tag, control)
+            else:
+                fileops.move_file(current, target, same, tag, control)
+            return target
+        except FileExistsError:
+            target = fileops.free_name(original)
+    raise FileExistsError(17, "target_exists", original)
 
 
 def undo_session(journal: jn.Journal, session_id: int, control: TaskControl | None = None,
@@ -58,7 +78,9 @@ def undo_session(journal: jn.Journal, session_id: int, control: TaskControl | No
     """Annule les opérations terminées d'une session, de la plus récente à la plus ancienne."""
     control = control or TaskControl()
     result = UndoResult()
-    rows = journal.ops(session_id, (ST_DONE,))
+    _vol_cache.clear()
+    _ready.clear()
+    rows = journal.ops(session_id, (ST_DONE,)) + _effectively_done(journal, session_id)
     if only_ids is not None:
         rows = [r for r in rows if r.id in only_ids]
     rows.sort(key=lambda r: (r.seq, r.id), reverse=True)
@@ -116,6 +138,23 @@ def undo_session(journal: jn.Journal, session_id: int, control: TaskControl | No
     summary["undo"] = {"undone": result.undone, "failed": result.failed}
     journal.set_status(session_id, result.status, summary)
     return result
+
+
+def _effectively_done(journal: jn.Journal, session_id: int) -> list[jn.OpRow]:
+    """Opérations notées « à faire » mais réellement effectuées (coupure avant l'écriture du journal)."""
+    out = []
+    for r in journal.ops(session_id, ("planned", "running")):
+        dst = r.extra.get("dst") or r.dst
+        if r.op == OP_MOVE and r.src and dst and not os.path.lexists(xp(r.src)) and os.path.lexists(xp(dst)):
+            r.dst = dst
+            journal.mark(r.id, ST_DONE, dst=dst)
+            out.append(r)
+        elif r.op == OP_TRASH and r.src and not os.path.lexists(xp(r.src)):
+            r.extra.setdefault("method", "recycle")
+            r.extra.setdefault("time", 0)
+            journal.mark(r.id, ST_DONE, extra=r.extra)
+            out.append(r)
+    return out
 
 
 def _undo_one(r: jn.OpRow, tag: str, control: TaskControl) -> None:
