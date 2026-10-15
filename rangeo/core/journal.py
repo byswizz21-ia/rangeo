@@ -258,6 +258,23 @@ class Journal:
             ).fetchall()
         return {state: n for state, n in rows}
 
+    def file_count(self, session_id: int) -> int:
+        """Nombre d'opérations terminées portant sur des fichiers (hors création de dossiers)."""
+        with self._lock:
+            self.flush()
+            return self._conn.execute(
+                "SELECT COUNT(*) FROM operations WHERE session_id = ? AND state = 'done' "
+                "AND op IN ('move','copy','trash','hardlink')", (session_id,)
+            ).fetchone()[0]
+
+    def done_bytes(self, session_id: int) -> int:
+        with self._lock:
+            self.flush()
+            return self._conn.execute(
+                "SELECT COALESCE(SUM(size), 0) FROM operations WHERE session_id = ? AND state = 'done' "
+                "AND op IN ('move','copy','trash','hardlink')", (session_id,)
+            ).fetchone()[0]
+
     def stats(self) -> dict:
         """Totaux pour la page d'accueil."""
         with self._lock:

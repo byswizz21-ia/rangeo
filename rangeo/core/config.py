@@ -44,6 +44,7 @@ DEFAULT_SETTINGS: dict = {
     "fix_extensions": False,
     "detect_bundles": True,
     "companions": True,
+    "cleanup_empty": True,
     "autostart": False,
     "minimize_to_tray": True,
     "notifications": True,

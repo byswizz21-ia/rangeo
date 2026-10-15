@@ -91,11 +91,13 @@ class ExecResult:
     bytes: int = 0
     duration: float = 0.0
     removed_dirs: int = 0
+    files: int = 0  # fichiers traités (hors dossiers créés)
     errors: list[tuple[str, str, str]] = field(default_factory=list)  # (chemin, code, détail)
 
     def summary(self) -> dict:
         return {
             "done": self.done,
+            "files": self.files,
             "failed": self.failed,
             "skipped": self.skipped,
             "bytes": self.bytes,
@@ -259,6 +261,8 @@ class Executor:
         result.done = counts.get(ST_DONE, 0)
         result.failed = counts.get(ST_FAILED, 0)
         result.skipped = counts.get("skipped", 0)
+        result.files = self.journal.file_count(session_id)
+        result.bytes = self.journal.done_bytes(session_id)
         result.status = status
         result.message = message
         result.duration = time.monotonic() - start
