@@ -29,6 +29,10 @@ FIELD_TYPES = {
     "path": "text",
     "folder": "text",
     "camera": "text",
+    "country": "text",
+    "city": "text",
+    "product": "text",
+    "content": "text",
     "artist": "text",
     "album": "text",
     "title": "text",
@@ -60,9 +64,11 @@ MONTHS = {
 }
 FALLBACKS = {
     "fr": {"artist": "Artiste inconnu", "album": "Album inconnu", "camera": "Appareil inconnu",
-           "series": "Série inconnue", "year": "Sans date", "kind": "Divers", "console": "Autre console"},
+           "series": "Série inconnue", "year": "Sans date", "kind": "Divers", "console": "Autre console",
+           "country": "Pays inconnu", "city": "Lieu inconnu", "product": "Autres", "version": "?"},
     "en": {"artist": "Unknown artist", "album": "Unknown album", "camera": "Unknown camera",
-           "series": "Unknown series", "year": "Undated", "kind": "Misc", "console": "Other console"},
+           "series": "Unknown series", "year": "Undated", "kind": "Misc", "console": "Other console",
+           "country": "Unknown country", "city": "Unknown place", "product": "Others", "version": "?"},
 }
 
 # variable du modèle -> nom canonique
@@ -89,15 +95,23 @@ VARIABLES = {
     "episode": "episode",
     "genre": "genre",
     "console": "console",
+    "heure": "hour", "hour": "hour",
+    "minute": "minute",
+    "seconde": "second", "second": "second",
+    "pays": "country", "country": "country",
+    "ville": "city", "city": "city",
+    "logiciel": "product", "software": "product",
+    "version": "version",
     "compteur": "counter", "counter": "counter",
 }
 # variables proposées dans l'interface (noms français)
-VARIABLE_LIST = ["annee", "mois", "mois_nom", "jour", "type", "ext", "nom", "nom_complet", "dossier", "artiste",
-                 "album", "titre", "piste", "annee_sortie", "appareil", "serie", "saison", "episode", "genre",
-                 "console", "compteur"]
-VARIABLE_LIST_EN = ["year", "month", "month_name", "day", "kind", "ext", "name", "filename", "folder", "artist",
-                    "album", "title", "track", "release_year", "camera", "series", "season", "episode", "genre",
-                    "console", "counter"]
+VARIABLE_LIST = ["annee", "mois", "mois_nom", "jour", "heure", "minute", "seconde", "type", "ext", "nom",
+                 "nom_complet", "dossier", "pays", "ville", "appareil", "artiste", "album", "titre", "piste",
+                 "annee_sortie", "serie", "saison", "episode", "genre", "logiciel", "version", "console", "compteur"]
+VARIABLE_LIST_EN = ["year", "month", "month_name", "day", "hour", "minute", "second", "kind", "ext", "name",
+                    "filename", "folder", "country", "city", "camera", "artist", "album", "title", "track",
+                    "release_year", "series", "season", "episode", "genre", "software", "version", "console",
+                    "counter"]
 
 _VAR_RE = re.compile(r"\{([a-zA-Z_]+)\}")
 _OPT_RE = re.compile(r"\[([^\[\]]*\{[a-zA-Z_]+\}[^\[\]]*)\]")
@@ -142,6 +156,12 @@ def field_value(entry: FileEntry, name: str):
         return entry.is_bundle
     if name == "ext_mismatch":
         return entry.ext_mismatch
+    if name == "content":
+        from .textcontent import read_text
+
+        if "_content" not in meta:
+            meta["_content"] = read_text(entry.path, entry.ext, entry.size)
+        return meta["_content"]
     return meta.get(name)
 
 
@@ -302,7 +322,8 @@ def template_values(entry: FileEntry, lang: str, kind_label=None) -> dict[str, s
         try:
             d = _dt.datetime.fromtimestamp(entry.date)
             values.update(year=f"{d.year:04d}", month=f"{d.month:02d}", day=f"{d.day:02d}",
-                          month_name=MONTHS.get(lang, MONTHS["fr"])[d.month - 1])
+                          month_name=MONTHS.get(lang, MONTHS["fr"])[d.month - 1], hour=f"{d.hour:02d}",
+                          minute=f"{d.minute:02d}", second=f"{d.second:02d}")
         except (OSError, OverflowError, ValueError):
             pass
     values["kind"] = kind_label(entry.kind) if kind_label else entry.kind
@@ -324,13 +345,19 @@ def template_values(entry: FileEntry, lang: str, kind_label=None) -> dict[str, s
     values["episode"] = f"{meta['episode']:02d}" if isinstance(meta.get("episode"), int) else None
     values["genre"] = meta.get("genre")
     values["console"] = meta.get("console")
+    values["country"] = meta.get("country")
+    values["city"] = meta.get("city")
+    values["product"] = meta.get("product")
+    values["version"] = meta.get("version")
     return {k: (str(v) if v not in (None, "") else None) for k, v in values.items()}
 
 
 def _fallback(canonical: str, values: dict, lang: str) -> str | None:
     fb = FALLBACKS.get(lang, FALLBACKS["fr"])
-    if canonical in ("year", "month", "day", "month_name"):
-        return fb["year"] if canonical == "year" else "00" if canonical in ("month", "day") else ""
+    if canonical in ("year", "month", "day", "month_name", "hour", "minute", "second"):
+        if canonical == "year":
+            return fb["year"]
+        return "" if canonical == "month_name" else "00"
     if canonical == "title":
         return values.get("stem")
     return fb.get(canonical)

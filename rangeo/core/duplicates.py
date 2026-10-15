@@ -25,7 +25,8 @@ COPY_MARKERS = re.compile(
 @dataclass
 class DupOptions:
     min_size: int = 1
-    keep_criteria: list[str] = field(default_factory=lambda: ["preferred", "clean_name", "oldest", "shortest_path"])
+    keep_criteria: list[str] = field(
+        default_factory=lambda: ["preferred", "best_quality", "clean_name", "oldest", "shortest_path"])
     preferred: list[str] = field(default_factory=list)
     threads: int | None = None
 
@@ -37,9 +38,12 @@ class DupGroup:
     files: list[FileEntry]
     keep: FileEntry
     enabled: bool = True
+    similar: bool = False  # fichiers ressemblants (pas identiques octet par octet)
 
     @property
     def wasted(self) -> int:
+        if self.similar:
+            return sum(e.size for e in self.files if e is not self.keep)
         return self.size * (len(self.files) - 1)
 
 
@@ -48,6 +52,10 @@ def _keep_key(entry: FileEntry, opt: DupOptions):
     for crit in opt.keep_criteria:
         if crit == "preferred":
             key.append(0 if any(is_within(entry.path, p) for p in opt.preferred) else 1)
+        elif crit == "best_quality":
+            from .similar import quality_of
+
+            key.append(-quality_of(entry))
         elif crit == "clean_name":
             key.append(len(COPY_MARKERS.findall(entry.stem)))
         elif crit == "oldest":
@@ -177,6 +185,15 @@ def find_duplicates(entries: list[FileEntry], opt: DupOptions, control: TaskCont
             result.append(DupGroup(digest, size, unique, choose_keep(unique, opt)))
     result.sort(key=lambda g: g.wasted, reverse=True)
     return result
+
+
+def similar_groups(groups_of_files: list[list[FileEntry]], opt: DupOptions) -> list[DupGroup]:
+    out = []
+    for files in groups_of_files:
+        files = sorted(files, key=lambda x: x.path.lower())
+        out.append(DupGroup("similar", max(e.size for e in files), files, choose_keep(files, opt), similar=True))
+    out.sort(key=lambda g: g.wasted, reverse=True)
+    return out
 
 
 def build_dup_plan(groups: list[DupGroup], action: str, dup_root: str | None, folder_name: str,

@@ -43,7 +43,7 @@ def test_full_sort_then_undo_restores_everything(engine, tmp_path):
     assert os.path.join("Images", "Photos", "2019", "2019-08 Août", "DSC00040.JPG") in after_dst
     assert os.path.join("Images", "Captures d'écran", "2024", "Screenshot 2024-03-12 143200.png") in after_dst
     assert os.path.join("Documents", "PDF", "2024", "Facture EDF mars 2024.pdf") in after_dst
-    assert os.path.join("Logiciels", "Installateurs", "setup_vlc.exe") in after_dst
+    assert os.path.join("Logiciels", "Installateurs", "Vlc", "setup_vlc.exe") in after_dst
     # projet de code déplacé EN BLOC (avec son .git)
     assert os.path.join("Projets de code", "mon-site", ".git", "HEAD") in after_dst
     assert os.path.join("Projets de code", "mon-site", "src", "logo.png") in after_dst

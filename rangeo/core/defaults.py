@@ -119,7 +119,8 @@ def default_rules(lang: str = "fr") -> list[dict]:
         rule("misc_doc", _kind_is("misc_doc"), "move", f"{f['documents']}/{f['misc_docs']}"),
         rule("archive", _kind_is("archive"), "move", f"{f['archives']}"),
         rule("disk_image", _kind_is("disk_image"), "move", f"{f['archives']}/{f['disk_images']}"),
-        rule("installer", _kind_is("installer"), "move", f"{f['software']}/{f['installers']}"),
+        rule("installer", _kind_is("installer"), "move",
+             f"{f['software']}/{f['installers']}/" + ("{logiciel}" if fr else "{software}")),
         rule("code", _kind_is("code"), "move", f"{f['code']}/{f['loose_code']}"),
         rule("font", _kind_is("font"), "move", f"{f['fonts']}"),
         rule("model3d", _kind_is("model3d"), "move", f"{f['model3d']}"),
@@ -146,6 +147,10 @@ def migrate_rules(rules: list[dict], lang: str = "fr") -> list[dict]:
         pos = next((j for j, r in enumerate(out) if r.get("builtin") in later), len(out))
         out.insert(pos, d)
         present.add(key)
+    old_installers = {"Logiciels/Installateurs", "Software/Installers"}
+    for r in out:  # V2 : un sous-dossier par logiciel pour les installateurs
+        if r.get("builtin") == "installer" and r.get("target") in old_installers:
+            r["target"] += "/{logiciel}" if r["target"].startswith("Logiciels") else "/{software}"
     for r in out:  # les collections de ROMs sont protégées comme les logiciels
         if r.get("builtin") == "software":
             for c in r.get("conditions", []):

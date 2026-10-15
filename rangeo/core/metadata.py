@@ -55,6 +55,31 @@ def _clean_camera(make, model) -> str | None:
     return make or model
 
 
+def _dms(values) -> float | None:
+    try:
+        vals = [float(v) for v in values]
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+    if not vals:
+        return None
+    vals += [0.0] * (3 - len(vals))
+    return vals[0] + vals[1] / 60 + vals[2] / 3600
+
+
+def gps_from_exif(lat_ref, lat, lon_ref, lon) -> tuple[float, float] | None:
+    """Coordonnées décimales à partir des champs GPS de l'EXIF."""
+    la, lo = _dms(lat), _dms(lon)
+    if la is None or lo is None:
+        return None
+    if str(lat_ref or "N").strip("\x00 ").upper().startswith("S"):
+        la = -la
+    if str(lon_ref or "E").strip("\x00 ").upper().startswith("W"):
+        lo = -lo
+    if not (-90 <= la <= 90 and -180 <= lo <= 180) or (abs(la) < 1e-6 and abs(lo) < 1e-6):
+        return None
+    return round(la, 6), round(lo, 6)
+
+
 # ---------------------------------------------------------------------------
 # Images
 # ---------------------------------------------------------------------------
@@ -110,6 +135,13 @@ def _tiff_exif(data: bytes, base: int = 0) -> dict:
                     entries[tag] = u32(p + 8)
                 elif typ == 3:
                     entries[tag] = u16(p + 8)
+                elif typ == 5 and cnt <= 8:  # RATIONAL
+                    voff = u32(p + 8)
+                    vals = []
+                    for k in range(cnt):
+                        num, den = u32(voff + k * 8), u32(voff + k * 8 + 4)
+                        vals.append(num / den if den else 0.0)
+                    entries[tag] = vals
             return entries
 
         ifd0 = read_ifd(u32(4))
@@ -120,6 +152,10 @@ def _tiff_exif(data: bytes, base: int = 0) -> dict:
         if exif_ptr:
             exif = read_ifd(exif_ptr)
             out["original"] = exif.get(36867) or exif.get(36868)
+        gps_ptr = ifd0.get(0x8825)
+        if gps_ptr:
+            gps = read_ifd(gps_ptr)
+            out["gps"] = gps_from_exif(gps.get(1), gps.get(2), gps.get(3), gps.get(4))
     except (struct.error, IndexError, ValueError):
         pass
     return out
@@ -137,6 +173,8 @@ def read_image_meta(path: str, ext: str) -> dict:
             info = _tiff_exif(data)
             meta["exif_date"] = _parse_exif_datetime(info.get("original") or info.get("datetime"))
             meta["camera"] = _clean_camera(info.get("make"), info.get("model"))
+            if info.get("gps"):
+                meta["gps"] = list(info["gps"])
         except OSError as exc:
             meta["error"] = str(exc)
         return {k: v for k, v in meta.items() if v is not None}
@@ -159,6 +197,14 @@ def read_image_meta(path: str, ext: str) -> dict:
                 meta["camera"] = _clean_camera(exif.get(271), exif.get(272))
                 if exif.get(305):
                     meta["software"] = str(exif.get(305)).strip("\x00 ")[:60]
+                try:
+                    gps = exif.get_ifd(0x8825) or {}
+                except Exception:
+                    gps = {}
+                if gps:
+                    coords = gps_from_exif(gps.get(1), gps.get(2), gps.get(3), gps.get(4))
+                    if coords:
+                        meta["gps"] = list(coords)
     except (UnidentifiedImageError, OSError, ValueError, SyntaxError, struct.error) as exc:
         meta["error"] = str(exc)[:200]
     except Exception as exc:  # fichiers corrompus : ne jamais planter
@@ -227,6 +273,8 @@ def read_audio_meta(path: str) -> dict:
     info = getattr(audio, "info", None)
     if info is not None and getattr(info, "length", None):
         meta["duration"] = round(float(info.length), 1)
+    if info is not None and getattr(info, "bitrate", None):
+        meta["bitrate"] = int(info.bitrate)
     return {k: v for k, v in meta.items() if v is not None}
 
 
@@ -237,6 +285,7 @@ _MP4_EPOCH = 2082844800  # secondes entre 1904 et 1970
 
 
 def read_video_meta(path: str, ext: str) -> dict:
+    """Date de création, durée, dimensions et position GPS (MP4 / MOV / 3GP)."""
     meta: dict = {}
     if ext not in ("mp4", "m4v", "mov", "3gp", "3g2", "qt"):
         return meta
@@ -260,7 +309,9 @@ def read_video_meta(path: str, ext: str) -> dict:
                 if size < hdr:
                     break
                 if typ == b"moov":
-                    _parse_moov(fh, pos + hdr, min(pos + size, end), meta)
+                    length = min(size - hdr, 32 * 1024 * 1024)
+                    fh.seek(pos + hdr)
+                    _parse_moov(fh.read(length), meta)
                     break
                 pos += size
     except (OSError, struct.error) as exc:
@@ -268,30 +319,58 @@ def read_video_meta(path: str, ext: str) -> dict:
     return meta
 
 
-def _parse_moov(fh, start: int, stop: int, meta: dict) -> None:
-    pos = start
-    for _ in range(64):
-        if pos + 8 > stop:
+_ISO6709 = re.compile(rb"([+-]\d{1,2}(?:\.\d+)?)([+-]\d{1,3}(?:\.\d+)?)(?:[+-]\d+(?:\.\d+)?)?(?:CRS[^/]*)?/")
+
+
+def _boxes(data: bytes, start: int = 0, stop: int | None = None):
+    pos, stop = start, len(data) if stop is None else stop
+    while pos + 8 <= stop:
+        size, typ = struct.unpack_from(">I4s", data, pos)
+        hdr = 8
+        if size == 1 and pos + 16 <= stop:
+            size = struct.unpack_from(">Q", data, pos + 8)[0]
+            hdr = 16
+        elif size == 0:
+            size = stop - pos
+        if size < hdr:
             return
-        fh.seek(pos)
-        size, typ = struct.unpack(">I4s", fh.read(8))
-        if size < 8:
-            return
-        if typ == b"mvhd":
-            body = fh.read(min(size - 8, 32))
-            version = body[0]
+        yield typ, pos + hdr, min(pos + size, stop)
+        pos += size
+
+
+def _parse_moov(data: bytes, meta: dict) -> None:
+    width = height = 0
+    for typ, body, stop in _boxes(data):
+        if typ == b"mvhd" and stop - body >= 32:
+            version = data[body]
             if version == 1:
-                created = struct.unpack(">Q", body[4:12])[0]
-                timescale, duration = struct.unpack(">IQ", body[20:32])
+                created = struct.unpack_from(">Q", data, body + 4)[0]
+                timescale, duration = struct.unpack_from(">IQ", data, body + 20)
             else:
-                created = struct.unpack(">I", body[4:8])[0]
-                timescale, duration = struct.unpack(">II", body[12:20])
+                created = struct.unpack_from(">I", data, body + 4)[0]
+                timescale, duration = struct.unpack_from(">II", data, body + 12)
             if created:
                 meta["media_date"] = _valid_ts(created - _MP4_EPOCH)
             if timescale:
                 meta["duration"] = round(duration / timescale, 1)
-            return
-        pos += size
+        elif typ == b"trak":
+            for t2, b2, s2 in _boxes(data, body, stop):
+                if t2 == b"tkhd" and s2 - b2 >= 84:
+                    off = b2 + (92 if data[b2] == 1 else 80) - 8
+                    w = struct.unpack_from(">I", data, off)[0] >> 16
+                    h = struct.unpack_from(">I", data, off + 4)[0] >> 16
+                    if w * h > width * height:
+                        width, height = w, h
+    if width and height:
+        meta["width"], meta["height"] = width, height
+    m = _ISO6709.search(data)
+    if m:
+        try:
+            lat, lon = float(m.group(1)), float(m.group(2))
+            if -90 <= lat <= 90 and -180 <= lon <= 180 and not (abs(lat) < 1e-6 and abs(lon) < 1e-6):
+                meta["gps"] = [round(lat, 6), round(lon, 6)]
+        except ValueError:
+            pass
 
 
 # ---------------------------------------------------------------------------

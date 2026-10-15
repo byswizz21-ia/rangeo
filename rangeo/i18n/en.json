@@ -719,5 +719,21 @@
   "bundle.rom_collection": "Emulator game collections (ROMs)",
   "bundle_reason.rom_files": "Contains emulator games",
   "scan.root_is_rom_collection": "“{path}” is an emulator game collection: it is left untouched.",
-  "var.console": "console (for ROMs)"
+  "var.console": "console (for ROMs)",
+  "field.country": "Country (GPS)",
+  "field.city": "City (GPS)",
+  "field.product": "Software (installer)",
+  "field.content": "Text content",
+  "var.hour": "hour",
+  "var.minute": "minute",
+  "var.second": "second",
+  "var.country": "country (GPS)",
+  "var.city": "city (GPS)",
+  "var.product": "software name",
+  "var.version": "software version",
+  "meta.place": "Place",
+  "meta.product": "Software",
+  "dup_keep.best_quality": "best quality (resolution, bitrate)",
+  "stage.similar_sign": "Computing fingerprints",
+  "stage.similar_compare": "Comparing fingerprints"
 }

@@ -47,6 +47,9 @@ class MetaIndex:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.executescript(SCHEMA)
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(files)")}
+        if "sig" not in columns:  # V2 : empreintes des doublons ressemblants
+            self._conn.execute("ALTER TABLE files ADD COLUMN sig TEXT")
         self._conn.commit()
 
     def close(self) -> None:
@@ -88,6 +91,7 @@ class MetaIndex:
                        ON CONFLICT(key) DO UPDATE SET
                          phash = CASE WHEN files.size = excluded.size AND files.mtime = excluded.mtime THEN files.phash END,
                          fhash = CASE WHEN files.size = excluded.size AND files.mtime = excluded.mtime THEN files.fhash END,
+                         sig = CASE WHEN files.size = excluded.size AND files.mtime = excluded.mtime THEN files.sig END,
                          size = excluded.size, mtime = excluded.mtime, real_ext = excluded.real_ext,
                          meta = excluded.meta, seen = excluded.seen""",
                     data,
@@ -103,6 +107,7 @@ class MetaIndex:
                     """INSERT INTO files(key, size, mtime, phash, fhash, seen) VALUES (?,?,?,?,?,?)
                        ON CONFLICT(key) DO UPDATE SET
                          meta = CASE WHEN files.size = excluded.size AND files.mtime = excluded.mtime THEN files.meta END,
+                         sig = CASE WHEN files.size = excluded.size AND files.mtime = excluded.mtime THEN files.sig END,
                          real_ext = CASE WHEN files.size = excluded.size AND files.mtime = excluded.mtime
                                          THEN files.real_ext END,
                          phash = COALESCE(excluded.phash, CASE WHEN files.size = excluded.size
@@ -110,6 +115,38 @@ class MetaIndex:
                          fhash = COALESCE(excluded.fhash, CASE WHEN files.size = excluded.size
                                           AND files.mtime = excluded.mtime THEN files.fhash END),
                          size = excluded.size, mtime = excluded.mtime, seen = excluded.seen""",
+                    data,
+                )
+
+    def lookup_sigs(self, items: list[tuple[str, int, float]]) -> dict[str, str]:
+        """Empreintes de ressemblance déjà calculées pour des fichiers inchangés."""
+        out: dict[str, str] = {}
+        wanted = {nkey(p): (s, _mt(m)) for p, s, m in items}
+        keys = list(wanted)
+        with self._lock:
+            for i in range(0, len(keys), self.BATCH):
+                chunk = keys[i:i + self.BATCH]
+                marks = ",".join("?" * len(chunk))
+                for key, size, mtime, sig in self._conn.execute(
+                        f"SELECT key, size, mtime, sig FROM files WHERE key IN ({marks})", chunk):
+                    if sig and wanted.get(key) == (size, mtime):
+                        out[key] = sig
+        return out
+
+    def store_sigs(self, rows: list[tuple[str, int, float, str]]) -> None:
+        now = time.time()
+        data = [(nkey(p), s, _mt(m), sig, now) for p, s, m, sig in rows]
+        with self._lock:
+            with self._conn:
+                self._conn.executemany(
+                    """INSERT INTO files(key, size, mtime, sig, seen) VALUES (?,?,?,?,?)
+                       ON CONFLICT(key) DO UPDATE SET
+                         meta = CASE WHEN files.size = excluded.size AND files.mtime = excluded.mtime THEN files.meta END,
+                         real_ext = CASE WHEN files.size = excluded.size AND files.mtime = excluded.mtime
+                                         THEN files.real_ext END,
+                         phash = CASE WHEN files.size = excluded.size AND files.mtime = excluded.mtime THEN files.phash END,
+                         fhash = CASE WHEN files.size = excluded.size AND files.mtime = excluded.mtime THEN files.fhash END,
+                         sig = excluded.sig, size = excluded.size, mtime = excluded.mtime, seen = excluded.seen""",
                     data,
                 )
 

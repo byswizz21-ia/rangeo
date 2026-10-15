@@ -101,6 +101,7 @@ class Engine:
             date_order=cfg.get("date_order") or ["metadata", "filename", "oldest"],
             low_priority=cfg.get("priority") == "discreet",
             threads=2 if cfg.get("priority") == "discreet" else None,
+            lang=self.lang,
         )
 
     # -- rangement -------------------------------------------------------------------
@@ -176,6 +177,39 @@ class Engine:
         )
         groups = dup_mod.find_duplicates(scan_result.entries, dup_options, control, self.index)
         return scan_result, groups
+
+    def find_similar(self, sources: list[str], mode: str, sensitivity: str, control: TaskControl,
+                     recursive: bool = True) -> tuple[ScanResult, list[dup_mod.DupGroup]]:
+        """Images / musiques / vidéos ressemblantes."""
+        from . import similar
+        from .classify import ClassifyOptions, classify
+
+        cfg = self.config
+        dup_name = cfg.get("duplicates_folder") or FOLDERS[self.lang]["duplicates"]
+        options = ScanOptions(
+            recursive=recursive,
+            skip_hidden=cfg.get("skip_hidden", True),
+            exclusions=cfg.get("exclusions", []) + [QUARANTINE_DIR, dup_name],
+            detect_bundles=cfg.get("detect_bundles", True),
+            keep_whole=cfg.get("keep_whole") or [],
+            extra_protected=cfg.get("protected", []),
+        )
+        scan_result = scan(sources, options, control)
+        group = similar.MODE_GROUPS[mode]
+        from . import filetypes as ft
+
+        media = [e for e in scan_result.entries if not e.is_bundle and ft.kind_from_ext(e.ext) == group]
+        classify(media, ClassifyOptions(lang=self.lang, date_order=cfg.get("date_order") or ["metadata", "oldest"]),
+                 control, self.index)
+        sim_options = similar.SimilarOptions(mode=mode, sensitivity=sensitivity,
+                                             min_size=int(cfg.get("dup_min_size", 1) or 1),
+                                             threads=2 if cfg.get("priority") == "discreet" else None)
+        groups = similar.find_similar(media, sim_options, control, self.index)
+        dup_options = dup_mod.DupOptions(
+            keep_criteria=cfg.get("dup_keep") or ["preferred", "best_quality", "clean_name", "oldest"],
+            preferred=cfg.get("dup_preferred") or [],
+        )
+        return scan_result, dup_mod.similar_groups(groups, dup_options)
 
     def duplicate_plan(self, groups: list[dup_mod.DupGroup], action: str, dup_root: str | None = None) -> Plan:
         folder = self.config.get("duplicates_folder") or FOLDERS[self.lang]["duplicates"]

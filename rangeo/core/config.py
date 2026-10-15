@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 CONFLICT_STRATEGIES = ["rename", "skip", "overwrite", "keep_newest", "keep_largest"]
 IDENTICAL_STRATEGIES = ["duplicates", "trash", "skip"]
 DUP_ACTIONS = ["move", "trash", "hardlink"]
-DUP_CRITERIA = ["preferred", "clean_name", "oldest", "newest", "shortest_path", "longest_name"]
+DUP_CRITERIA = ["preferred", "best_quality", "clean_name", "oldest", "newest", "shortest_path", "longest_name"]
 
 DEFAULT_SETTINGS: dict = {
     "version": 1,
@@ -30,7 +30,7 @@ DEFAULT_SETTINGS: dict = {
     "conflict": "rename",
     "identical": "duplicates",
     "duplicates_folder": FOLDERS["fr"]["duplicates"],
-    "dup_keep": ["preferred", "clean_name", "oldest", "shortest_path"],
+    "dup_keep": ["preferred", "best_quality", "clean_name", "oldest", "shortest_path"],
     "dup_preferred": [],
     "dup_action": "move",
     "dup_min_size": 1,
@@ -116,6 +116,9 @@ class Config:
                 for key, value in data.items():
                     if key in settings and type(value) is type(settings[key]) or key in ("window",):
                         settings[key] = value
+            # V2 : nouveau critère « meilleure qualité » si l'utilisateur n'a pas personnalisé la liste
+            if settings.get("dup_keep") == ["preferred", "clean_name", "oldest", "shortest_path"]:
+                settings["dup_keep"] = ["preferred", "best_quality", "clean_name", "oldest", "shortest_path"]
             self.settings = settings
             profiles = _load_json(self.profiles_path)
             lang = settings.get("language", "fr")

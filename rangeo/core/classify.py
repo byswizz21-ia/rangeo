@@ -25,6 +25,7 @@ class ClassifyOptions:
     date_order: list[str] = field(default_factory=lambda: ["metadata", "filename", "oldest"])
     threads: int | None = None
     low_priority: bool = False
+    lang: str = "fr"
 
 
 def _media_base(ext: str) -> str:
@@ -50,6 +51,10 @@ def inspect_file(entry: FileEntry, need_sniff: bool, need_meta: bool) -> tuple[s
                 meta = md.read_video_meta(path, ext)
             elif base == "audio":
                 meta = md.read_audio_meta(path)
+            elif base == "installer":
+                from .installers import product_info
+
+                meta = product_info(path, entry.stem, ext)
             if meta.get("error") and not need_sniff:
                 # le fichier ne correspond peut-être pas à son extension
                 real = ft.sniff(ft.read_head(path))
@@ -179,7 +184,7 @@ def classify(
             continue
         base = ft.kind_from_ext(e.ext)
         need_sniff = options.deep_check or not e.ext or base == "unknown"
-        need_meta = options.read_metadata and base in ("image", "video", "audio")
+        need_meta = options.read_metadata and base in ("image", "video", "audio", "installer")
         if need_sniff or need_meta:
             todo.append((e, need_sniff, need_meta))
 
@@ -236,9 +241,23 @@ def classify(
         if index is not None and new_rows:
             index.store_meta(new_rows)
 
+    geo_needed = [e for e in entries if not e.is_bundle and e.meta.get("gps")]
+    if geo_needed:
+        from . import geo
+
+        for e in geo_needed:
+            geo.enrich(e.meta, options.lang)
     for e in entries:
         if not e.is_bundle:
             e.kind = refine_kind(e)
+            if e.kind == "installer" and "product" not in e.meta:
+                from .installers import from_filename
+
+                name, version = from_filename(e.stem)
+                if name:
+                    e.meta["product"] = name
+                if version:
+                    e.meta["version"] = version
         compute_date(e, options.date_order)
 
 
