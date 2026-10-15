@@ -323,3 +323,21 @@ def test_crash_then_undo_without_resume(engine, tmp_path, monkeypatch):
     undo = engine.undo(sid, TaskControl())
     assert undo.failed == 0, undo.errors
     assert snapshot(src) == before
+
+
+def test_reports_export(engine, tmp_path):
+    from rangeo.core.report import export_csv, export_html
+    from rangeo.ui.i18n import set_language, tr
+
+    set_language("fr")
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    (src / "a.pdf").write_bytes(b"%PDF-1.4")
+    (src / "b.txt").write_text("x")
+    _scan, _plan, result = _sort(engine, src, dst)
+    html_path, csv_path = tmp_path / "r.html", tmp_path / "r.csv"
+    export_html(engine.journal, result.session_id, str(html_path), tr, "fr")
+    export_csv(engine.journal, result.session_id, str(csv_path), tr)
+    html = html_path.read_text(encoding="utf-8")
+    assert "Rapport Rangeo" in html and "a.pdf" in html
+    assert "Déplacement" in csv_path.read_text(encoding="utf-8-sig")

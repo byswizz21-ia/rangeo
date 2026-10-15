@@ -61,11 +61,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="rangeo")
     parser.add_argument("--tray", action="store_true", help="démarrer réduit près de l'horloge")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--selftest", metavar="DOSSIER", help="autotest sans interface (diagnostic)")
     args, _unknown = parser.parse_known_args(argv)
 
     from .core.logsetup import setup_logging
 
     setup_logging(args.debug)
+    if args.selftest:
+        from .core import selftest
+
+        report = selftest.run(args.selftest)
+        log.info("Autotest : %s", report)
+        return 0 if report["ok"] else 1
     _set_app_id()
 
     from PySide6.QtCore import QTimer
