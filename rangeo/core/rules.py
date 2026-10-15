@@ -60,9 +60,9 @@ MONTHS = {
 }
 FALLBACKS = {
     "fr": {"artist": "Artiste inconnu", "album": "Album inconnu", "camera": "Appareil inconnu",
-           "series": "Série inconnue", "year": "Sans date", "kind": "Divers"},
+           "series": "Série inconnue", "year": "Sans date", "kind": "Divers", "console": "Autre console"},
     "en": {"artist": "Unknown artist", "album": "Unknown album", "camera": "Unknown camera",
-           "series": "Unknown series", "year": "Undated", "kind": "Misc"},
+           "series": "Unknown series", "year": "Undated", "kind": "Misc", "console": "Other console"},
 }
 
 # variable du modèle -> nom canonique
@@ -88,15 +88,16 @@ VARIABLES = {
     "saison": "season", "season": "season",
     "episode": "episode",
     "genre": "genre",
+    "console": "console",
     "compteur": "counter", "counter": "counter",
 }
 # variables proposées dans l'interface (noms français)
 VARIABLE_LIST = ["annee", "mois", "mois_nom", "jour", "type", "ext", "nom", "nom_complet", "dossier", "artiste",
                  "album", "titre", "piste", "annee_sortie", "appareil", "serie", "saison", "episode", "genre",
-                 "compteur"]
+                 "console", "compteur"]
 VARIABLE_LIST_EN = ["year", "month", "month_name", "day", "kind", "ext", "name", "filename", "folder", "artist",
                     "album", "title", "track", "release_year", "camera", "series", "season", "episode", "genre",
-                    "counter"]
+                    "console", "counter"]
 
 _VAR_RE = re.compile(r"\{([a-zA-Z_]+)\}")
 _OPT_RE = re.compile(r"\[([^\[\]]*\{[a-zA-Z_]+\}[^\[\]]*)\]")
@@ -322,6 +323,7 @@ def template_values(entry: FileEntry, lang: str, kind_label=None) -> dict[str, s
     values["season"] = f"{meta['season']:02d}" if isinstance(meta.get("season"), int) else None
     values["episode"] = f"{meta['episode']:02d}" if isinstance(meta.get("episode"), int) else None
     values["genre"] = meta.get("genre")
+    values["console"] = meta.get("console")
     return {k: (str(v) if v not in (None, "") else None) for k, v in values.items()}
 
 

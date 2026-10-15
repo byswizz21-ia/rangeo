@@ -17,7 +17,7 @@ FOLDERS = {
         "software": "Logiciels", "installers": "Installateurs",
         "code": "Projets de code", "loose_code": "Fichiers isolés",
         "fonts": "Polices", "model3d": "Modèles 3D", "shortcuts": "Raccourcis & liens",
-        "unsorted": "_À trier", "duplicates": "_Doublons",
+        "unsorted": "_À trier", "duplicates": "_Doublons", "games": "Jeux", "roms": "ROMs",
     },
     "en": {
         "images": "Pictures", "photos": "Photos", "screenshots": "Screenshots",
@@ -31,7 +31,7 @@ FOLDERS = {
         "software": "Software", "installers": "Installers",
         "code": "Code projects", "loose_code": "Loose files",
         "fonts": "Fonts", "model3d": "3D models", "shortcuts": "Shortcuts & links",
-        "unsorted": "_To sort", "duplicates": "_Duplicates",
+        "unsorted": "_To sort", "duplicates": "_Duplicates", "games": "Games", "roms": "ROMs",
     },
 }
 
@@ -45,7 +45,8 @@ RULE_NAMES = {
         "spreadsheet": "Tableurs", "presentation": "Présentations", "ebook": "Livres numériques",
         "misc_doc": "Documents divers", "archive": "Archives", "disk_image": "Images disque",
         "installer": "Installateurs", "code": "Fichiers de code isolés", "font": "Polices",
-        "model3d": "Modèles 3D", "shortcut": "Raccourcis", "technical": "Fichiers techniques (laissés en place)",
+        "model3d": "Modèles 3D", "shortcut": "Raccourcis", "rom": "Jeux d'émulateur (ROMs)",
+        "technical": "Fichiers techniques (laissés en place)",
         "unknown": "Fichiers non reconnus",
     },
     "en": {
@@ -56,7 +57,8 @@ RULE_NAMES = {
         "audio": "Audio (recordings, sounds)", "pdf": "PDF", "text": "Texts", "spreadsheet": "Spreadsheets",
         "presentation": "Presentations", "ebook": "eBooks", "misc_doc": "Misc documents", "archive": "Archives",
         "disk_image": "Disk images", "installer": "Installers", "code": "Loose code files", "font": "Fonts",
-        "model3d": "3D models", "shortcut": "Shortcuts", "technical": "Technical files (left in place)",
+        "model3d": "3D models", "shortcut": "Shortcuts", "rom": "Emulator games (ROMs)",
+        "technical": "Technical files (left in place)",
         "unknown": "Unrecognized files",
     },
 }
@@ -90,7 +92,8 @@ def default_rules(lang: str = "fr") -> list[dict]:
     return [
         # pour un dossier entier, la cible est le dossier qui va le contenir
         rule("code_project", _kind_is("code_project"), "move", f"{f['code']}"),
-        rule("software", [{"field": "kind", "op": "in_list", "value": "software, app_data"}], "ignore"),
+        rule("software", [{"field": "kind", "op": "in_list", "value": "software, app_data, rom_collection"}],
+             "ignore"),
         rule("kept", _kind_is("kept_folder"), "ignore"),
         rule("screenshot", _kind_is("screenshot"), "move", f"{f['images']}/{f['screenshots']}/{y}"),
         rule("photo", _kind_is("photo"), "move", f"{f['images']}/{f['photos']}/{y}/{y}-{m} {mn}"),
@@ -121,9 +124,34 @@ def default_rules(lang: str = "fr") -> list[dict]:
         rule("font", _kind_is("font"), "move", f"{f['fonts']}"),
         rule("model3d", _kind_is("model3d"), "move", f"{f['model3d']}"),
         rule("shortcut", _kind_is("shortcut"), "move", f"{f['shortcuts']}"),
+        rule("rom", _kind_is("rom"), "move", f"{f['games']}/{f['roms']}/{{console}}"),
         rule("technical", _kind_is("technical"), "ignore"),
         rule("unknown", _kind_is("unknown"), "move", f"{f['unsorted']}"),
     ]
+
+
+def migrate_rules(rules: list[dict], lang: str = "fr") -> list[dict]:
+    """Ajoute aux profils existants les règles par défaut apparues dans une nouvelle version."""
+    if not any(r.get("builtin") for r in rules):
+        return rules  # profil entièrement personnalisé : on n'y touche pas
+    defaults = default_rules(lang)
+    present = {r.get("builtin") for r in rules}
+    out = list(rules)
+    for i, d in enumerate(defaults):
+        key = d["builtin"]
+        if key in present:
+            continue
+        # insérée juste avant la règle par défaut qui la suit
+        later = {x["builtin"] for x in defaults[i + 1:]}
+        pos = next((j for j, r in enumerate(out) if r.get("builtin") in later), len(out))
+        out.insert(pos, d)
+        present.add(key)
+    for r in out:  # les collections de ROMs sont protégées comme les logiciels
+        if r.get("builtin") == "software":
+            for c in r.get("conditions", []):
+                if c.get("field") == "kind" and c.get("op") == "in_list" and "rom_collection" not in str(c.get("value")):
+                    c["value"] = f"{c.get('value')}, rom_collection"
+    return out
 
 
 DEFAULT_EXCLUSIONS = [

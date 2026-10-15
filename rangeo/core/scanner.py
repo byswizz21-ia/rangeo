@@ -50,6 +50,14 @@ SOFTWARE_MARKER_FILES = {
     "gameassembly.dll", "ue4prereqsetup_x64.exe", "launcher.exe",
 }
 SOFTWARE_MARKER_DIRS = {".egstore", "steamapps", "__installer", "_commonredist", "redist", "binaries"}
+# Sous-dossiers typiques d'un jeu / logiciel à côté de son programme
+GAME_DIR_NAMES = {
+    "data", "content", "assets", "resources", "engine", "game", "www", "bin", "binaries", "lib", "libs", "plugins",
+    "mods", "maps", "levels", "shaders", "textures", "sounds", "sound", "audio", "music", "sfx", "movies",
+    "cinematics", "locale", "localization", "lang", "languages", "fonts", "gfx", "graphics", "media", "packages",
+    "paks", "base", "baseq3", "main", "x64", "x86", "win64", "win32", "redist", "_commonredist", "support",
+    "runtime", "jre", "platforms", "imageformats", "dlc", "saves", "save", "config", "cfg", "scripts", "ui",
+}
 
 # Fichiers « personnels » : signe qu'un dossier appartient à l'utilisateur et pas à un logiciel
 _PERSONAL_DOCS = set("pdf doc docx odt xls xlsx ods ppt pptx odp epub mobi azw3 pages numbers key".split())
@@ -91,7 +99,8 @@ class _Node:
     __slots__ = (
         "path", "parent", "depth", "files", "children", "child_names", "project", "keep", "has_exe",
         "has_dll", "software", "strong_software", "excluded_children", "sub_files", "sub_size", "sub_user",
-        "sub_tech", "sub_software", "sub_mtime", "root", "loose_personal", "sub_personal",
+        "sub_tech", "sub_software", "sub_mtime", "root", "loose_personal", "sub_personal", "name",
+        "loose_user", "game_assets", "sub_game_assets", "roms", "sub_roms", "exe_stems",
     )
 
     def __init__(self, path: str, parent: _Node | None, root: str):
@@ -117,6 +126,13 @@ class _Node:
         self.sub_mtime = 0.0
         self.loose_personal = 0
         self.sub_personal = 0
+        self.name = os.path.basename(path.rstrip("\\")).lower()
+        self.loose_user = 0
+        self.game_assets = 0
+        self.sub_game_assets = 0
+        self.roms = 0
+        self.sub_roms = 0
+        self.exe_stems: set[str] = set()
 
 
 class _Matcher:
@@ -317,8 +333,13 @@ class Scanner:
                     node.project = True
                 if ext == "exe":
                     node.has_exe = True
+                    node.exe_stems.add(stem)
                 elif ext == "dll":
                     node.has_dll = True
+                elif ext in ft.GAME_ASSET_EXT:
+                    node.game_assets += 1
+                elif ext in ft.ROM_EXT:
+                    node.roms += 1
                 if lname in SOFTWARE_MARKER_FILES:
                     node.software = True
                     node.strong_software = True
@@ -352,8 +373,6 @@ class Scanner:
                     )
                 )
                 count += 1
-        if node.has_exe and node.has_dll:
-            node.software = True
         node.children = new_children
         with self._lock:
             self._nodes.extend(new_children)
@@ -380,11 +399,24 @@ class Scanner:
                     n_tech += 1
             node.sub_files = len(files)
             node.sub_size = size
+            node.loose_user = n_user
             node.sub_user = n_user
             node.sub_tech = n_tech
-            node.sub_software = node.software
             node.sub_mtime = newest
             node.sub_personal = node.loose_personal
+            node.sub_game_assets = node.game_assets + sum(c.sub_game_assets for c in node.children)
+            node.sub_roms = node.roms + sum(c.sub_roms for c in node.children)
+            if node.has_exe and not node.software:
+                # un programme : .exe + .dll, ou .exe + données de jeu (archives .pak, dossier « data »,
+                # dossier « MonJeu_Data » de Unity…) — couvre les jeux sans .dll
+                names = set(node.child_names)
+                node.software = (
+                    node.has_dll
+                    or node.sub_game_assets > 0
+                    or bool(names & GAME_DIR_NAMES)
+                    or any(f"{s}_data" in names for s in node.exe_stems)
+                )
+            node.sub_software = node.software
             for c in node.children:
                 node.sub_personal += c.sub_personal
                 node.sub_files += c.sub_files
@@ -404,19 +436,53 @@ class Scanner:
         return node.sub_tech / total >= 0.8 and node.sub_user <= max(2, total // 10)
 
     @staticmethod
-    def _is_user_container(node: _Node) -> bool:
+    def _mostly_user_files(node: _Node) -> bool:
+        """Beaucoup de fichiers personnels « en vrac » (ex. un dossier Téléchargements avec un setup.exe)."""
+        loose = len(node.files)
+        if node.loose_personal >= 3 and node.loose_personal * 3 >= loose:  # documents, photos d'appareil…
+            return True
+        return node.loose_user >= 20 and node.loose_user * 2 >= loose
+
+    @staticmethod
+    def _program_with_data(node: _Node) -> bool:
+        """Dossier d'un jeu : un sous-dossier programme (bin/…) à côté de ses données (data/, content/…)."""
+        if not any(c.software for c in node.children):
+            return False
+        if node.game_assets:
+            return True
+        for c in node.children:
+            if c.software:
+                continue
+            if c.name in GAME_DIR_NAMES or c.name.endswith("_data") or c.sub_game_assets:
+                return True
+        return False
+
+    @staticmethod
+    def _userish(c: _Node) -> bool:
+        if c.sub_software or c.name in GAME_DIR_NAMES or not c.sub_files:
+            return False
+        return (c.sub_tech + c.sub_game_assets) / c.sub_files < 0.3
+
+    def _is_user_container(self, node: _Node) -> bool:
         """Dossier de l'utilisateur qui *contient* un logiciel (≠ dossier du logiciel lui-même).
 
         Ex. « Vieux disque » contient « Jeux/SuperJeu » mais aussi des photos et documents :
-        seul le jeu doit rester entier, le reste est rangé.
+        seul le jeu doit rester entier, le reste est rangé. À l'inverse, « MonJeu » qui contient
+        « bin/ » et « data/ » est un jeu : il reste entier. En cas de doute, on protège.
         """
-        outside = node.loose_personal + sum(c.sub_personal for c in node.children if not c.sub_software)
+        if node.software:  # le programme est directement dans ce dossier
+            return self._mostly_user_files(node)
+        if self._program_with_data(node):
+            return False
+        outside = node.loose_personal + sum(c.sub_personal for c in node.children if self._userish(c))
         if outside >= 3:
             return True
-        if not node.software and not node.has_exe and not node.strong_software:
-            # plusieurs logiciels côte à côte (ex. dossier « Jeux ») : chacun est un bloc
-            return sum(1 for c in node.children if c.sub_software) >= 2
-        return False
+        # plusieurs logiciels côte à côte (ex. dossier « Jeux ») : chacun est un bloc
+        return sum(1 for c in node.children if c.sub_software) >= 2
+
+    @staticmethod
+    def _rom_collection(node: _Node) -> bool:
+        return node.sub_roms >= 3 and node.sub_roms * 10 >= node.sub_files * 6
 
     def _bundle(self, node: _Node, kind: str, reason: str) -> None:
         parent, name = os.path.split(node.path)
@@ -447,11 +513,21 @@ class Scanner:
         if node.project:
             return "code_project", "project_marker"
         if is_root:
-            # pour la racine, seuls les marqueurs sans ambiguïté comptent
-            # (un dossier Téléchargements contient souvent un .exe et une .dll)
-            return ("software", "software_marker") if node.strong_software else None
+            # Le dossier choisi est-il lui-même un jeu / logiciel ? (un dossier Téléchargements contient
+            # souvent un .exe et une .dll au milieu de fichiers personnels : on ne le bloque pas)
+            if node.strong_software:
+                return "software", "software_marker"
+            if node.software and not self._mostly_user_files(node):
+                return "software", "software_marker"
+            if self._program_with_data(node) and not self._mostly_user_files(node):
+                return "software", "software_marker"
+            if node.roms >= 3 and node.roms * 10 >= len(node.files) * 6:
+                return "rom_collection", "rom_files"
+            return None
         if node.sub_software and not self._is_user_container(node):
             return "software", "software_marker"
+        if self._rom_collection(node):
+            return "rom_collection", "rom_files"
         if self._looks_like_app_data(node):
             return "app_data", "technical_files"
         return None

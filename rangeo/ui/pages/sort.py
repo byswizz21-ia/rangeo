@@ -276,7 +276,7 @@ class PreviewStep(QWidget):
         filt.addWidget(self.search, 1)
         self.group_filter = QComboBox()
         self.group_filter.addItem(tr("preview.all_types"), "")
-        for g in ("image", "video", "audio", "document", "archive", "software", "code", "bundle", "unknown"):
+        for g in ("image", "video", "audio", "document", "archive", "software", "game", "code", "bundle", "unknown"):
             self.group_filter.addItem(icons.kind_icon(g), tr(f"group.{g}"), g)
         self.group_filter.currentIndexChanged.connect(
             lambda: self.model.set_filters(group=self.group_filter.currentData()))

@@ -3,7 +3,6 @@
   "app.footer": "Version {version} · Nothing is ever permanently deleted",
   "app.quit_busy_title": "An operation is in progress",
   "app.quit_busy_text": "If you quit now, the operation will be interrupted. No file will be lost: you can resume or undo it next time Rangeo starts.",
-
   "nav.home": "Home",
   "nav.sort": "Sort",
   "nav.duplicates": "Duplicates",
@@ -11,7 +10,6 @@
   "nav.watch": "Auto-sort",
   "nav.history": "History",
   "nav.settings": "Settings",
-
   "common.ok": "OK",
   "common.cancel": "Cancel",
   "common.continue": "Continue",
@@ -23,19 +21,16 @@
   "common.busy_text": "Another operation is already running: {task}. Wait for it to finish.",
   "common.files.one": "{n} file",
   "common.files.many": "{n} files",
-
   "busy.analyze": "Analyzing",
   "busy.sort": "Sorting",
   "busy.duplicates": "Processing duplicates",
   "busy.history": "Undo / resume in progress",
-
   "tray.open": "Open Rangeo",
   "tray.sort": "Sort a folder…",
   "tray.pause_watch": "Pause auto-sort",
   "tray.quit": "Quit Rangeo",
   "tray.still_running": "Rangeo is still running",
   "tray.still_running_text": "Rangeo keeps watching your folders. Click the icon near the clock to open it again.",
-
   "home.title": "Hello 👋",
   "home.subtitle": "Sort your drives safely: Rangeo analyzes, you review, then it sorts. Everything can be undone.",
   "home.drop_title": "Drop a folder or a drive here",
@@ -61,7 +56,6 @@
   "home.see_history": "See full history",
   "home.n_ops": "{n} files",
   "home.safety": "Safety: every move is written to a journal before it happens. Copies between drives are verified before the original is removed. Deletions go to the Recycle Bin. You can undo everything from History.",
-
   "sort.title": "Sort",
   "sort.subtitle": "Choose what to sort and where. Rangeo will show you a full preview before changing anything.",
   "sort.step_sources": "1. What should be sorted?",
@@ -105,7 +99,6 @@
   "sort.running_text": "You can pause at any time. If the computer shuts down, Rangeo will resume where it left off.",
   "sort.run_failed": "Sorting stopped",
   "sort.notify_done": "{n} files sorted.",
-
   "preview.title": "Sorting preview",
   "preview.subtitle": "Review before starting: nothing has been changed yet. Uncheck what you don't want to sort.",
   "preview.back": "Edit",
@@ -156,7 +149,6 @@
   "preview.nothing_to_do": "Everything is already sorted! There's nothing to do.",
   "preview.scan_errors.one": "{n} item could not be read (access denied or unreadable drive). It will be left in place.",
   "preview.scan_errors.many": "{n} items could not be read (access denied or unreadable drive). They will be left in place.",
-
   "skip.hidden.one": "{n} hidden or system file",
   "skip.hidden.many": "{n} hidden or system files",
   "skip.partial.one": "{n} download in progress",
@@ -167,7 +159,6 @@
   "skip.link.many": "{n} system links",
   "skip.protected.one": "{n} protected folder",
   "skip.protected.many": "{n} protected folders",
-
   "bundle.code_project": "Code projects (kept whole)",
   "bundle.software": "Detected software and games",
   "bundle.app_data": "Application data (saves, settings…)",
@@ -176,7 +167,6 @@
   "bundle_reason.software_marker": "Contains a program (.exe + .dll)",
   "bundle_reason.technical_files": "Technical files only",
   "bundle_reason.marked": "Marked “keep whole”",
-
   "progress.pause": "Pause",
   "progress.resume": "Resume",
   "progress.cancel": "Stop",
@@ -189,7 +179,6 @@
   "progress.eta": "About {t} left",
   "progress.elapsed": "Elapsed: {t}",
   "progress.errors": "⚠ {n} error(s)",
-
   "stage.scan": "Scanning folders",
   "stage.analyze": "Reading file information",
   "stage.plan": "Preparing the sorting plan",
@@ -197,7 +186,6 @@
   "stage.undo": "Undoing",
   "stage.dup_partial": "Quick file comparison",
   "stage.dup_full": "Full duplicate verification",
-
   "result.done": "files processed",
   "result.failed": "errors",
   "result.duration": "duration",
@@ -211,7 +199,6 @@
   "result.resume": "Resume / retry",
   "result.new": "New sort",
   "result.undo_tip": "💡 Changed your mind? Everything can be put back exactly as before from the History page, even after restarting the computer.",
-
   "exec.done": "Sorting complete!",
   "exec.done_text": "All files are in their new place.",
   "exec.done_errors": "Done, with a few errors",
@@ -222,7 +209,6 @@
   "exec.device_gone_text": "The operation was stopped safely. Reconnect the drive and resume it from History.",
   "exec.disk_full": "Disk full",
   "exec.disk_full_text": "There is not enough space on the destination drive. Free some space and resume from History.",
-
   "plan.no_rule": "No matching rule",
   "plan.rule_ignore": "Left in place by a rule",
   "plan.already_sorted": "Already in the right place",
@@ -243,7 +229,6 @@
   "plan.companion_stays": "Companion file staying with its main file",
   "plan.cloud_only": "Online-only file (OneDrive…): copying it to another drive would download it. Check it if you want to.",
   "plan.not_enough_space": "Not enough free space on the destination drive",
-
   "op.move": "Move",
   "op.copy": "Copy",
   "op.trash": "Recycle Bin",
@@ -253,7 +238,6 @@
   "op.skip": "Skipped",
   "op.trash_target": "🗑 Recycle Bin",
   "op.hardlink_target": "🔗 Link to “{name}”",
-
   "state.planned": "To do",
   "state.running": "Running",
   "state.done": "Done",
@@ -261,7 +245,6 @@
   "state.skipped": "Skipped",
   "state.undone": "Undone",
   "state.undo_failed": "Undo failed",
-
   "status.running": "Running",
   "status.paused": "Paused",
   "status.completed": "Completed",
@@ -270,12 +253,10 @@
   "status.interrupted": "Interrupted",
   "status.undone": "Undone",
   "status.partially_undone": "Partially undone",
-
   "session.kind_sort": "Sorting",
   "session.kind_duplicates": "Duplicates",
   "session.kind_watch": "Auto-sort",
   "session.kind_undo": "Undo",
-
   "error.verify_failed": "The copy did not match the original (original kept)",
   "error.source_changed": "The file changed during the copy (original kept)",
   "error.not_identical": "The files are no longer identical",
@@ -289,7 +270,6 @@
   "error.other": "Unexpected error",
   "error.not_in_recycle_bin": "Not found in the Recycle Bin (already emptied?)",
   "error.moved_file_missing": "The sorted file no longer exists",
-
   "protect.system_folder": "Protected system folder: Rangeo refuses to touch it",
   "protect.system_drive": "The whole system drive cannot be sorted (choose your personal folders instead)",
   "protect.profile_root": "The whole user folder cannot be sorted (choose Downloads, Desktop, Documents…)",
@@ -301,7 +281,6 @@
   "scan.root_is_software": "“{path}” looks like installed software or a game: it is left untouched.",
   "scan.root_is_app_data": "“{path}” contains application data: it is left untouched.",
   "scan.root_is_kept_folder": "“{path}” is marked “keep whole”.",
-
   "dups.title": "Duplicates",
   "dups.subtitle": "Find perfectly identical files (same content, even with a different name) and free up space.",
   "dups.where": "Where to look?",
@@ -346,14 +325,12 @@
   "dups.hardlink_skipped.one": "{n} copy is on another drive: it cannot become a hard link and will be skipped.",
   "dups.hardlink_skipped.many": "{n} copies are on another drive: they cannot become hard links and will be skipped.",
   "dup.hardlink_other_disk": "On another drive: hard link impossible",
-
   "dup_keep.preferred": "in a preferred folder",
   "dup_keep.clean_name": "cleanest name (no “(1)”, “Copy of”…)",
   "dup_keep.oldest": "the oldest",
   "dup_keep.newest": "the newest",
   "dup_keep.shortest_path": "shortest path",
   "dup_keep.longest_name": "longest name (more descriptive)",
-
   "rules.title": "Sorting rules",
   "rules.subtitle": "Rules are checked from top to bottom: the first matching rule decides where the file goes.",
   "rules.profile_menu": "Profile",
@@ -430,7 +407,6 @@
   "rules.profile_options": "Default options for this profile",
   "rules.profile_options_text": "These settings are suggested automatically when you choose this profile.",
   "rules.default_destination": "Default destination folder:",
-
   "field.name": "Full name",
   "field.stem": "Name (without extension)",
   "field.ext": "Extension",
@@ -454,7 +430,6 @@
   "field.duration": "Duration (seconds)",
   "field.is_bundle": "Is a whole folder",
   "field.ext_mismatch": "Wrong extension",
-
   "cond.equals": "is",
   "cond.not_equals": "is not",
   "cond.contains": "contains",
@@ -482,12 +457,10 @@
   "cond.in_year": "in year",
   "cond.is_true": "yes",
   "cond.is_false": "no",
-
   "action.move": "Move to",
   "action.copy": "Copy to",
   "action.ignore": "Leave in place",
   "action.trash": "Send to Recycle Bin",
-
   "var.year": "year",
   "var.month": "month (01-12)",
   "var.month_name": "month name",
@@ -510,19 +483,16 @@
   "var.episode": "episode",
   "var.genre": "genre",
   "var.counter": "counter (001, 002…)",
-
   "meta.camera": "Camera",
   "meta.artist": "Artist",
   "meta.album": "Album",
   "meta.series": "TV show",
   "meta.title": "Title",
-
   "date_source.metadata": "date taken",
   "date_source.filename": "date in the name",
   "date_source.oldest": "oldest file date",
   "date_source.created": "created date",
   "date_source.modified": "modified date",
-
   "kind.photo": "Photo",
   "kind.screenshot": "Screenshot",
   "kind.design": "Edited image / design",
@@ -553,7 +523,6 @@
   "kind.software": "Software / game",
   "kind.app_data": "Application data",
   "kind.kept_folder": "Kept folder",
-
   "group.image": "Pictures",
   "group.video": "Videos",
   "group.audio": "Audio",
@@ -567,7 +536,6 @@
   "group.technical": "Technical",
   "group.unknown": "Unknown",
   "group.bundle": "Whole folders",
-
   "history.title": "History",
   "history.subtitle": "Every operation performed. Each one can be undone, even after a restart.",
   "history.refresh": "Refresh",
@@ -601,13 +569,11 @@
   "history.delete": "Remove from history",
   "history.delete_text": "Remove this session from history? You will no longer be able to undo it. Files are not touched.",
   "history.failed": "The operation failed",
-
   "recovery.title": "An operation was interrupted",
   "recovery.text": "The sort from {date} did not finish (crash, power cut or disconnected drive). {done} operations had been done, {todo} were left. No file is lost.",
   "recovery.resume": "Resume",
   "recovery.undo": "Undo everything",
   "recovery.later": "Later",
-
   "watch.title": "Automatic sorting",
   "watch.subtitle": "Rangeo watches the chosen folders and sorts each new file as soon as it has fully arrived.",
   "watch.how": "Files are sorted with the chosen profile, only once their download is complete. Rangeo must stay open (icon near the clock). Each sort appears in History and can be undone.",
@@ -636,7 +602,6 @@
   "watch.event_moved.many": "{n} files sorted from {folder}",
   "watch.event_failed.one": "{n} error",
   "watch.event_failed.many": "{n} errors",
-
   "settings.title": "Settings",
   "settings.subtitle": "Changes are saved automatically.",
   "settings.general": "General",
@@ -705,7 +670,6 @@
   "settings.cache_cleared": "Cache cleared.",
   "settings.apply_later": "An operation is in progress: the change will apply once it is finished (change the setting again afterwards).",
   "settings.about": "Rangeo {version} — disk sorting software for Windows. Your data never leaves your computer.",
-
   "conflict.rename": "Rename automatically “name (2)”",
   "conflict.skip": "Don't move the new file",
   "conflict.overwrite": "Replace (old one goes to the Recycle Bin)",
@@ -716,7 +680,6 @@
   "identical.skip": "Leave the copy in place",
   "priority.fast": "Fast (recommended)",
   "priority.discreet": "Quiet",
-
   "report.title": "Rangeo report",
   "report.done": "successful operations",
   "report.failed": "errors",
@@ -730,7 +693,6 @@
   "report.col_size": "Size",
   "report.col_rule": "Rule",
   "report.col_error": "Error",
-
   "wizard.welcome": "Welcome to Rangeo",
   "wizard.welcome_text": "A few settings and you're ready to sort your drives.",
   "wizard.prefs": "Your preferences",
@@ -750,5 +712,12 @@
   "wizard.back": "Back",
   "wizard.next": "Next",
   "wizard.start": "Get started",
-  "wizard.step": "Step {n} of {total}"
+  "wizard.step": "Step {n} of {total}",
+  "kind.rom": "Emulator game (ROM)",
+  "kind.rom_collection": "ROM collection",
+  "group.game": "Games",
+  "bundle.rom_collection": "Emulator game collections (ROMs)",
+  "bundle_reason.rom_files": "Contains emulator games",
+  "scan.root_is_rom_collection": "“{path}” is an emulator game collection: it is left untouched.",
+  "var.console": "console (for ROMs)"
 }

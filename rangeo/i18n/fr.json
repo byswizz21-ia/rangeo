@@ -3,7 +3,6 @@
   "app.footer": "Version {version} · Rien n'est jamais supprimé définitivement",
   "app.quit_busy_title": "Une opération est en cours",
   "app.quit_busy_text": "Si vous quittez maintenant, l'opération sera interrompue. Aucun fichier ne sera perdu : vous pourrez la reprendre ou l'annuler au prochain démarrage.",
-
   "nav.home": "Accueil",
   "nav.sort": "Ranger",
   "nav.duplicates": "Doublons",
@@ -11,7 +10,6 @@
   "nav.watch": "Surveillance",
   "nav.history": "Historique",
   "nav.settings": "Paramètres",
-
   "common.ok": "OK",
   "common.cancel": "Annuler",
   "common.continue": "Continuer",
@@ -23,19 +21,16 @@
   "common.busy_text": "Une autre opération est déjà en cours : {task}. Attendez qu'elle se termine.",
   "common.files.one": "{n} fichier",
   "common.files.many": "{n} fichiers",
-
   "busy.analyze": "Analyse en cours",
   "busy.sort": "Rangement en cours",
   "busy.duplicates": "Doublons en cours",
   "busy.history": "Annulation / reprise en cours",
-
   "tray.open": "Ouvrir Rangeo",
   "tray.sort": "Ranger un dossier…",
   "tray.pause_watch": "Mettre la surveillance en pause",
   "tray.quit": "Quitter Rangeo",
   "tray.still_running": "Rangeo reste actif",
   "tray.still_running_text": "Rangeo continue de surveiller vos dossiers. Cliquez sur l'icône près de l'horloge pour le rouvrir.",
-
   "home.title": "Bonjour 👋",
   "home.subtitle": "Rangez vos disques en toute sécurité : Rangeo analyse, vous vérifiez, puis il range. Tout peut être annulé.",
   "home.drop_title": "Glissez un dossier ou un disque ici",
@@ -61,7 +56,6 @@
   "home.see_history": "Voir tout l'historique",
   "home.n_ops": "{n} fichiers",
   "home.safety": "Sécurité : chaque déplacement est noté dans un journal avant d'être fait. Les copies entre disques sont vérifiées avant de supprimer l'original. Les suppressions passent par la corbeille. Vous pouvez tout annuler depuis l'Historique.",
-
   "sort.title": "Ranger",
   "sort.subtitle": "Choisissez quoi ranger et où. Rangeo vous montrera un aperçu complet avant de modifier quoi que ce soit.",
   "sort.step_sources": "1. Que faut-il ranger ?",
@@ -105,7 +99,6 @@
   "sort.running_text": "Vous pouvez mettre en pause à tout moment. Si l'ordinateur s'éteint, Rangeo reprendra là où il s'était arrêté.",
   "sort.run_failed": "Le rangement s'est arrêté",
   "sort.notify_done": "{n} fichiers rangés.",
-
   "preview.title": "Aperçu du rangement",
   "preview.subtitle": "Vérifiez avant de lancer : rien n'a encore été modifié. Décochez ce que vous ne voulez pas ranger.",
   "preview.back": "Modifier",
@@ -156,7 +149,6 @@
   "preview.nothing_to_do": "Tout est déjà rangé ! Il n'y a rien à faire.",
   "preview.scan_errors.one": "{n} élément n'a pas pu être lu (accès refusé ou disque illisible). Il sera laissé en place.",
   "preview.scan_errors.many": "{n} éléments n'ont pas pu être lus (accès refusé ou disque illisible). Ils seront laissés en place.",
-
   "skip.hidden.one": "{n} fichier caché ou système",
   "skip.hidden.many": "{n} fichiers cachés ou système",
   "skip.partial.one": "{n} téléchargement en cours",
@@ -167,7 +159,6 @@
   "skip.link.many": "{n} raccourcis système (liens)",
   "skip.protected.one": "{n} dossier protégé",
   "skip.protected.many": "{n} dossiers protégés",
-
   "bundle.code_project": "Projets de code (gardés entiers)",
   "bundle.software": "Logiciels et jeux détectés",
   "bundle.app_data": "Données d'application (sauvegardes, configurations…)",
@@ -176,7 +167,6 @@
   "bundle_reason.software_marker": "Contient un programme (.exe + .dll)",
   "bundle_reason.technical_files": "Fichiers techniques uniquement",
   "bundle_reason.marked": "Marqué « ne pas éclater »",
-
   "progress.pause": "Pause",
   "progress.resume": "Reprendre",
   "progress.cancel": "Arrêter",
@@ -189,7 +179,6 @@
   "progress.eta": "Reste environ {t}",
   "progress.elapsed": "Écoulé : {t}",
   "progress.errors": "⚠ {n} erreur(s)",
-
   "stage.scan": "Parcours des dossiers",
   "stage.analyze": "Lecture des informations des fichiers",
   "stage.plan": "Préparation du plan de rangement",
@@ -197,7 +186,6 @@
   "stage.undo": "Annulation en cours",
   "stage.dup_partial": "Comparaison rapide des fichiers",
   "stage.dup_full": "Vérification complète des doublons",
-
   "result.done": "fichiers traités",
   "result.failed": "erreurs",
   "result.duration": "durée",
@@ -211,7 +199,6 @@
   "result.resume": "Reprendre / réessayer",
   "result.new": "Nouveau rangement",
   "result.undo_tip": "💡 Vous avez changé d'avis ? Tout peut être remis exactement comme avant depuis la page Historique, même après avoir redémarré l'ordinateur.",
-
   "exec.done": "Rangement terminé !",
   "exec.done_text": "Tous les fichiers sont à leur nouvelle place.",
   "exec.done_errors": "Terminé, avec quelques erreurs",
@@ -222,7 +209,6 @@
   "exec.device_gone_text": "L'opération a été interrompue proprement. Rebranchez le disque puis reprenez-la depuis l'Historique.",
   "exec.disk_full": "Disque plein",
   "exec.disk_full_text": "Il n'y a plus assez de place sur le disque de destination. Libérez de l'espace puis reprenez depuis l'Historique.",
-
   "plan.no_rule": "Aucune règle ne correspond",
   "plan.rule_ignore": "Laissés en place par une règle",
   "plan.already_sorted": "Déjà à la bonne place",
@@ -243,7 +229,6 @@
   "plan.companion_stays": "Fichier annexe qui reste avec son fichier principal",
   "plan.cloud_only": "Fichier en ligne (OneDrive…) non téléchargé : le copier vers un autre disque le téléchargerait. Cochez-le si vous le voulez.",
   "plan.not_enough_space": "Pas assez d'espace libre sur le disque de destination",
-
   "op.move": "Déplacement",
   "op.copy": "Copie",
   "op.trash": "Corbeille",
@@ -253,7 +238,6 @@
   "op.skip": "Ignoré",
   "op.trash_target": "🗑 Corbeille",
   "op.hardlink_target": "🔗 Lien vers « {name} »",
-
   "state.planned": "À faire",
   "state.running": "En cours",
   "state.done": "Fait",
@@ -261,7 +245,6 @@
   "state.skipped": "Ignoré",
   "state.undone": "Annulé",
   "state.undo_failed": "Annulation impossible",
-
   "status.running": "En cours",
   "status.paused": "En pause",
   "status.completed": "Terminé",
@@ -270,12 +253,10 @@
   "status.interrupted": "Interrompu",
   "status.undone": "Annulé",
   "status.partially_undone": "Partiellement annulé",
-
   "session.kind_sort": "Rangement",
   "session.kind_duplicates": "Doublons",
   "session.kind_watch": "Rangement automatique",
   "session.kind_undo": "Annulation",
-
   "error.verify_failed": "La copie ne correspondait pas à l'original (original conservé)",
   "error.source_changed": "Le fichier a été modifié pendant la copie (original conservé)",
   "error.not_identical": "Les fichiers ne sont plus identiques",
@@ -289,7 +270,6 @@
   "error.other": "Erreur inattendue",
   "error.not_in_recycle_bin": "Introuvable dans la corbeille (déjà vidée ?)",
   "error.moved_file_missing": "Le fichier rangé n'existe plus",
-
   "protect.system_folder": "Dossier système protégé : Rangeo refuse d'y toucher",
   "protect.system_drive": "Le disque système entier ne peut pas être rangé (choisissez plutôt vos dossiers personnels)",
   "protect.profile_root": "Le dossier utilisateur entier ne peut pas être rangé (choisissez Téléchargements, Bureau, Documents…)",
@@ -301,7 +281,6 @@
   "scan.root_is_software": "« {path} » ressemble à un logiciel ou un jeu installé : il est laissé intact.",
   "scan.root_is_app_data": "« {path} » contient des données d'application : il est laissé intact.",
   "scan.root_is_kept_folder": "« {path} » est marqué « ne pas éclater ».",
-
   "dups.title": "Doublons",
   "dups.subtitle": "Trouvez les fichiers parfaitement identiques (même contenu, même si le nom est différent) et libérez de l'espace.",
   "dups.where": "Où chercher ?",
@@ -346,14 +325,12 @@
   "dups.hardlink_skipped.one": "{n} copie est sur un autre disque : elle ne peut pas devenir un lien physique et sera ignorée.",
   "dups.hardlink_skipped.many": "{n} copies sont sur un autre disque : elles ne peuvent pas devenir des liens physiques et seront ignorées.",
   "dup.hardlink_other_disk": "Sur un autre disque : lien physique impossible",
-
   "dup_keep.preferred": "dans un dossier préféré",
   "dup_keep.clean_name": "nom le plus propre (sans « (1) », « Copie de »…)",
   "dup_keep.oldest": "le plus ancien",
   "dup_keep.newest": "le plus récent",
   "dup_keep.shortest_path": "chemin le plus court",
   "dup_keep.longest_name": "nom le plus long (plus descriptif)",
-
   "rules.title": "Règles de rangement",
   "rules.subtitle": "Les règles sont testées de haut en bas : la première qui correspond décide où va le fichier.",
   "rules.profile_menu": "Profil",
@@ -430,7 +407,6 @@
   "rules.profile_options": "Options par défaut de ce profil",
   "rules.profile_options_text": "Ces réglages sont proposés automatiquement quand vous choisissez ce profil.",
   "rules.default_destination": "Dossier de rangement par défaut :",
-
   "field.name": "Nom complet",
   "field.stem": "Nom (sans extension)",
   "field.ext": "Extension",
@@ -454,7 +430,6 @@
   "field.duration": "Durée (secondes)",
   "field.is_bundle": "Est un dossier entier",
   "field.ext_mismatch": "Extension incorrecte",
-
   "cond.equals": "est",
   "cond.not_equals": "n'est pas",
   "cond.contains": "contient",
@@ -482,12 +457,10 @@
   "cond.in_year": "en l'année",
   "cond.is_true": "oui",
   "cond.is_false": "non",
-
   "action.move": "Déplacer vers",
   "action.copy": "Copier vers",
   "action.ignore": "Laisser en place",
   "action.trash": "Mettre à la corbeille",
-
   "var.year": "année",
   "var.month": "mois (01-12)",
   "var.month_name": "nom du mois",
@@ -510,19 +483,16 @@
   "var.episode": "épisode",
   "var.genre": "genre",
   "var.counter": "compteur (001, 002…)",
-
   "meta.camera": "Appareil",
   "meta.artist": "Artiste",
   "meta.album": "Album",
   "meta.series": "Série",
   "meta.title": "Titre",
-
   "date_source.metadata": "date de prise de vue",
   "date_source.filename": "date dans le nom",
   "date_source.oldest": "date la plus ancienne du fichier",
   "date_source.created": "date de création",
   "date_source.modified": "date de modification",
-
   "kind.photo": "Photo",
   "kind.screenshot": "Capture d'écran",
   "kind.design": "Image retouchée / design",
@@ -553,7 +523,6 @@
   "kind.software": "Logiciel / jeu",
   "kind.app_data": "Données d'application",
   "kind.kept_folder": "Dossier conservé",
-
   "group.image": "Images",
   "group.video": "Vidéos",
   "group.audio": "Audio",
@@ -567,7 +536,6 @@
   "group.technical": "Techniques",
   "group.unknown": "Inconnus",
   "group.bundle": "Dossiers entiers",
-
   "history.title": "Historique",
   "history.subtitle": "Toutes les opérations effectuées. Chacune peut être annulée, même après un redémarrage.",
   "history.refresh": "Actualiser",
@@ -601,13 +569,11 @@
   "history.delete": "Retirer de l'historique",
   "history.delete_text": "Retirer cette session de l'historique ? Vous ne pourrez plus l'annuler. Les fichiers ne sont pas touchés.",
   "history.failed": "L'opération a échoué",
-
   "recovery.title": "Une opération a été interrompue",
   "recovery.text": "Le rangement du {date} ne s'est pas terminé (plantage, coupure de courant ou disque débranché). {done} opérations avaient été faites, {todo} restaient à faire. Aucun fichier n'est perdu.",
   "recovery.resume": "Reprendre",
   "recovery.undo": "Tout annuler",
   "recovery.later": "Plus tard",
-
   "watch.title": "Rangement automatique",
   "watch.subtitle": "Rangeo surveille les dossiers choisis et range chaque nouveau fichier dès qu'il est complètement arrivé.",
   "watch.how": "Les fichiers sont rangés selon le profil choisi, uniquement quand leur téléchargement est terminé. Rangeo doit rester ouvert (icône près de l'horloge). Chaque rangement apparaît dans l'Historique et peut être annulé.",
@@ -636,7 +602,6 @@
   "watch.event_moved.many": "{n} fichiers rangés depuis {folder}",
   "watch.event_failed.one": "{n} erreur",
   "watch.event_failed.many": "{n} erreurs",
-
   "settings.title": "Paramètres",
   "settings.subtitle": "Les modifications sont enregistrées automatiquement.",
   "settings.general": "Général",
@@ -705,7 +670,6 @@
   "settings.cache_cleared": "Cache vidé.",
   "settings.apply_later": "Une opération est en cours : le changement sera appliqué quand elle sera terminée (rechangez le réglage ensuite).",
   "settings.about": "Rangeo {version} — logiciel de rangement de disques pour Windows. Vos données ne quittent jamais votre ordinateur.",
-
   "conflict.rename": "Renommer automatiquement « nom (2) »",
   "conflict.skip": "Ne pas déplacer le nouveau fichier",
   "conflict.overwrite": "Remplacer (l'ancien va à la corbeille)",
@@ -716,7 +680,6 @@
   "identical.skip": "Laisser la copie en place",
   "priority.fast": "Rapide (recommandé)",
   "priority.discreet": "Discret",
-
   "report.title": "Rapport Rangeo",
   "report.done": "opérations réussies",
   "report.failed": "erreurs",
@@ -730,7 +693,6 @@
   "report.col_size": "Taille",
   "report.col_rule": "Règle",
   "report.col_error": "Erreur",
-
   "wizard.welcome": "Bienvenue dans Rangeo",
   "wizard.welcome_text": "Quelques réglages et vous êtes prêt à ranger vos disques.",
   "wizard.prefs": "Vos préférences",
@@ -750,5 +712,12 @@
   "wizard.back": "Retour",
   "wizard.next": "Suivant",
   "wizard.start": "Commencer",
-  "wizard.step": "Étape {n} sur {total}"
+  "wizard.step": "Étape {n} sur {total}",
+  "kind.rom": "Jeu d'émulateur (ROM)",
+  "kind.rom_collection": "Collection de ROMs",
+  "group.game": "Jeux",
+  "bundle.rom_collection": "Collections de jeux d'émulateur (ROMs)",
+  "bundle_reason.rom_files": "Contient des jeux d'émulateur",
+  "scan.root_is_rom_collection": "« {path} » est une collection de jeux d'émulateur : elle est laissée intacte.",
+  "var.console": "console (pour les ROMs)"
 }

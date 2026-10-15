@@ -41,8 +41,8 @@ from ..widgets import Banner, Card, ScrollPage, button, confirm, error, hbox, in
 ACTION_ICONS = {"move": "arrow_right", "copy": "copy", "ignore": "lock", "trash": "trash"}
 ENUM_VALUES = {
     "kind": [k for k in ft.KINDS],
-    "group": ["image", "video", "audio", "document", "archive", "software", "code", "font", "model3d", "shortcut",
-              "technical", "unknown", "bundle"],
+    "group": ["image", "video", "audio", "document", "archive", "software", "game", "code", "font", "model3d",
+              "shortcut", "technical", "unknown", "bundle"],
 }
 
 

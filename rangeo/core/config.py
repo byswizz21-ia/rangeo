@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 from . import appdirs
-from .defaults import DEFAULT_EXCLUSIONS, FOLDERS, default_profiles
+from .defaults import DEFAULT_EXCLUSIONS, FOLDERS, default_profiles, migrate_rules
 from .rules import normalize_rule
 
 log = logging.getLogger(__name__)
@@ -89,7 +89,7 @@ def normalize_profile(p: dict, lang: str = "fr") -> dict:
     base = default_profiles(lang)[0]
     out = copy.deepcopy(base)
     out.update({k: v for k, v in p.items() if k in base or k in ("id", "name")})
-    out["rules"] = [normalize_rule(r) for r in (p.get("rules") or [])]
+    out["rules"] = migrate_rules([normalize_rule(r) for r in (p.get("rules") or [])], lang)
     out["sources"] = [s for s in out.get("sources") or [] if isinstance(s, str)]
     out["extra_dirs"] = [s for s in out.get("extra_dirs") or [] if isinstance(s, str)]
     return out

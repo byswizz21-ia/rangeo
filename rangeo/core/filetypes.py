@@ -33,6 +33,7 @@ KIND_GROUP = {
     "font": "font",
     "model3d": "model3d",
     "shortcut": "shortcut",
+    "rom": "game",
     "technical": "technical",
     "unknown": "unknown",
     # dossiers traités d'un bloc
@@ -40,11 +41,12 @@ KIND_GROUP = {
     "software": "bundle",
     "app_data": "bundle",
     "kept_folder": "bundle",
+    "rom_collection": "bundle",
 }
 
 KINDS = list(KIND_GROUP)
 GROUPS = sorted(set(KIND_GROUP.values()))
-BUNDLE_KINDS = {"code_project", "software", "app_data", "kept_folder"}
+BUNDLE_KINDS = {"code_project", "software", "app_data", "kept_folder", "rom_collection"}
 
 
 def _exts(text: str) -> set[str]:
@@ -92,6 +94,27 @@ TECHNICAL_EXT = _exts(
     "thumbs crdownload part partial download opdownload ess skse fos dmp mdmp swp swo lnk~ ldf mdf ndf "
     "nupkg whl gem crx xpi apk aab ipa deb rpm efi rom"
 )
+# Jeux d'émulateurs (ROMs) -> console
+ROM_CONSOLES = {
+    "nes": "NES", "fds": "NES", "sfc": "Super Nintendo", "smc": "Super Nintendo", "n64": "Nintendo 64",
+    "z64": "Nintendo 64", "v64": "Nintendo 64", "gb": "Game Boy", "gbc": "Game Boy Color",
+    "gba": "Game Boy Advance", "nds": "Nintendo DS", "cia": "Nintendo 3DS", "gcm": "GameCube - Wii",
+    "rvz": "GameCube - Wii", "wbfs": "GameCube - Wii", "nsp": "Nintendo Switch", "xci": "Nintendo Switch",
+    "nsz": "Nintendo Switch", "gen": "Mega Drive", "smd": "Mega Drive", "sms": "Master System", "gg": "Game Gear",
+    "32x": "Sega 32X", "gdi": "Dreamcast", "cdi": "Dreamcast", "pce": "PC Engine", "a26": "Atari 2600",
+    "a78": "Atari 7800", "lnx": "Atari Lynx", "ngp": "Neo Geo Pocket", "ngc": "Neo Geo Pocket", "ws": "WonderSwan",
+    "wsc": "WonderSwan", "cso": "PSP", "pbp": "PSP", "chd": "CD (arcade, PS1…)", "vb": "Virtual Boy",
+}
+ROM_EXT = set(ROM_CONSOLES)
+# Données typiques des jeux vidéo (moteurs, archives de ressources, cinématiques)
+GAME_ASSET_EXT = _exts(
+    "pak pck bnk wem unity3d assets ress resource bsa ba2 esm esp esl vpk uasset uexp umap upk rpa rpyc rgss3a "
+    "rgssad rgss2a rvdata2 rxdata xnb gcf big forge cpk awb acb usm bik bk2 fsb xwb xsb pk3 pk4 dds vtf vmt nif "
+    "hkx gma arc sdat pac"
+)
+# Sauvegardes d'émulateurs et de jeux : fichiers techniques
+_SAVE_EXT = _exts("srm state sgm mcr gci dsv eep fla mpk sta oops")
+
 # Fichiers en cours de téléchargement / temporaires : jamais touchés
 PARTIAL_EXT = _exts("crdownload part partial download opdownload !ut !qb tmp temp filepart")
 ALWAYS_SKIP_NAMES = {"desktop.ini", "thumbs.db", "ehthumbs.db", "ehthumbs_vista.db", ".ds_store", "icon\r", "autorun.inf"}
@@ -115,8 +138,11 @@ _EXT_TABLE: list[tuple[set[str], str]] = [
     (FONT_EXT, "font"),
     (MODEL3D_EXT, "model3d"),
     (SHORTCUT_EXT, "shortcut"),
+    (ROM_EXT, "rom"),
     (CODE_EXT, "code"),
     (TECHNICAL_EXT, "technical"),
+    (GAME_ASSET_EXT, "technical"),
+    (_SAVE_EXT, "technical"),
 ]
 EXT_KIND: dict[str, str] = {}
 for _set, _kind in _EXT_TABLE:

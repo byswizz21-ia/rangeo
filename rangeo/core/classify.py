@@ -127,6 +127,9 @@ def refine_kind(entry: FileEntry) -> str:
         if md.is_camera_name(stem) or md.date_from_name(stem) or ext in ("mts", "m2ts", "3gp", "3g2"):
             return "home_video"
         return "video"
+    if base == "rom":
+        meta["console"] = ft.ROM_CONSOLES.get(ext)
+        return "rom"
     if base == "audio":
         if md.is_recording_name(stem):
             return "audio"
