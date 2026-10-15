@@ -221,7 +221,7 @@ class Executor:
         result = ExecResult(session_id)
         session = self.journal.session(session_id)
         states = (ST_PLANNED, ST_RUNNING) + ((ST_FAILED,) if retry_failed else ())
-        rows = [r for r in self.journal.ops(session_id, states) if r.op != OP_RMDIR]
+        rows = self.journal.ops(session_id, states)
         self.journal.set_status(session_id, jn.S_RUNNING)
         if self.opt.low_priority:
             set_process_low_priority(True)
@@ -247,7 +247,7 @@ class Executor:
             for r in work:
                 if r.op in (OP_MOVE,) and r.dst and self._same_volume(r.src, os.path.dirname(r.dst)):
                     fast.append(r)
-                elif r.op in (OP_TRASH, OP_HARDLINK):
+                elif r.op in (OP_TRASH, OP_HARDLINK, OP_RMDIR):
                     fast.append(r)
                 else:
                     slow.append(r)
@@ -350,6 +350,9 @@ class Executor:
                 info, final = self._trash(row), None
             elif row.op == OP_HARDLINK:
                 info, final = self._hardlink(row), None
+            elif row.op == OP_RMDIR:
+                os.rmdir(xp(row.src))  # échoue si le dossier n'est plus vide : sans risque
+                info, final = {}, None
             else:
                 info, final = {}, None
             extra = dict(row.extra)
@@ -565,7 +568,10 @@ class Executor:
                 self.journal.mark(row.id, ST_DONE, extra={**row.extra, "note": "recovered"})
                 return True
             return False
-        if row.op == OP_MKDIR:
+        if row.op == OP_RMDIR:
+            if not os.path.lexists(xp(row.src)):
+                self.journal.mark(row.id, ST_DONE, extra={**row.extra, "note": "recovered"})
+                return True
             return False
         return False
 
