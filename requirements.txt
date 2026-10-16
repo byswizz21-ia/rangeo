@@ -6,3 +6,6 @@ pillow-heif>=0.16
 mutagen>=1.47
 watchdog>=4.0
 pywin32>=306
+numpy>=2.0
+av>=12.0
+PyYAML>=6.0

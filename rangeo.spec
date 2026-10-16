@@ -6,7 +6,9 @@ from PyInstaller.utils.hooks import collect_submodules
 hidden = (
     collect_submodules("watchdog.observers")
     + collect_submodules("send2trash")
-    + ["pillow_heif", "win32com.shell.shell", "pythoncom", "pywintypes", "win32file", "win32security", "win32api"]
+    + collect_submodules("av")
+    + ["pillow_heif", "win32com.shell.shell", "win32com.client", "pythoncom", "pywintypes", "win32file",
+       "win32security", "win32api", "numpy", "yaml", "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets"]
 )
 
 # modules Qt inutiles (réduit fortement la taille)
@@ -14,7 +16,7 @@ excluded = [
     "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineQuick", "PySide6.QtWebChannel",
     "PySide6.Qt3DCore", "PySide6.Qt3DRender", "PySide6.Qt3DExtras", "PySide6.Qt3DInput", "PySide6.Qt3DLogic",
     "PySide6.QtQuick", "PySide6.QtQuick3D", "PySide6.QtQml", "PySide6.QtQuickWidgets", "PySide6.QtCharts",
-    "PySide6.QtDataVisualization", "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets", "PySide6.QtPdf",
+    "PySide6.QtDataVisualization", "PySide6.QtPdf",
     "PySide6.QtPdfWidgets", "PySide6.QtBluetooth", "PySide6.QtNfc", "PySide6.QtPositioning", "PySide6.QtLocation",
     "PySide6.QtSensors", "PySide6.QtSerialPort", "PySide6.QtSql", "PySide6.QtTest", "PySide6.QtDesigner",
     "PySide6.QtHelp", "PySide6.QtOpenGL", "PySide6.QtOpenGLWidgets", "PySide6.QtRemoteObjects",

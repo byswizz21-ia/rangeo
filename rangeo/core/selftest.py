@@ -78,6 +78,37 @@ def run(folder: str) -> dict:
         trash.restore(probe, info)
         assert os.path.isfile(probe)
         report["steps"]["trash"] = info.get("method")
+
+        # --- V2 : géocodage, empreintes, renommage, analyse du disque ---
+        from . import diskreport, geo, rename, similar
+
+        assert geo.reverse(48.8584, 2.2945) == ("Paris", "FR")
+        report["steps"]["geo"] = "ok"
+        assert similar.image_signature(os.path.join(src, "IMG_20210621_183000.jpg")) is not None
+        import av
+        import numpy as np
+
+        wav = os.path.join(src, "son.flac")
+        with av.open(wav, "w", format="flac") as container:
+            stream = container.add_stream("flac", rate=11025)
+            stream.layout = "mono"
+            t = np.arange(11025 * 8) / 11025
+            pcm = (np.sin(2 * np.pi * 440 * t) * np.sin(2 * np.pi * 0.5 * t) * 20000).astype(np.int16)
+            frame = av.AudioFrame.from_ndarray(pcm.reshape(1, -1), format="s16", layout="mono")
+            frame.sample_rate = 11025
+            for packet in stream.encode(frame):
+                container.mux(packet)
+            for packet in stream.encode(None):
+                container.mux(packet)
+        assert similar.audio_fingerprint(wav) is not None
+        report["steps"]["fingerprints"] = "ok"
+        scan2 = eng.scan_and_classify(SortRequest(sources=[src], profile=cfg.profile(None), in_place=True), TaskControl())
+        items = rename.preview(scan2.entries, rename.RenameOptions(case="upper"))
+        assert any(i.changed for i in items)
+        report["steps"]["rename"] = "ok"
+        disk = diskreport.analyze_disk(src, TaskControl())
+        assert disk.total_files >= 3
+        report["steps"]["analysis"] = "ok"
         eng.close()
         report["ok"] = True
     except Exception as exc:  # rapport complet pour le diagnostic
