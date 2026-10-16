@@ -128,7 +128,7 @@ Paramètres → *Exporter la configuration* pour les sauvegarder (JSON ou YAML).
 ## 6. Pour le développement
 
 ```
-.venv\Scripts\python.exe -m pytest              # 57 tests (reprise après crash, annulation octet par octet, jeux…)
+.venv\Scripts\python.exe -m pytest              # 98 tests (reprise après crash, annulation octet par octet, jeux, tests de torture…)
 .venv\Scripts\python.exe tools\benchmark.py 100000   # mesure des performances
 .venv\Scripts\python.exe tools\ui_screenshots.py     # captures de toutes les pages
 ```
