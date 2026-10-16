@@ -25,7 +25,8 @@ def test_same_keys_in_all_languages():
 
 def test_placeholders_match():
     fr, en = load("fr"), load("en")
-    examples = {"rules.target_placeholder", "rules.rename_placeholder", "rules.template_help"}  # modèles d'exemple
+    examples = {"rules.target_placeholder", "rules.rename_placeholder", "rules.template_help",
+                "rename.template_placeholder"}  # modèles d'exemple
     for key in fr:
         if key in examples:
             continue

@@ -27,6 +27,8 @@ from ..i18n import fmt_date, fmt_duration, fmt_int, fmt_size, language, tr
 from ..widgets import Chip, ProgressPanel, button, confirm, error, hbox, info, label, open_in_explorer, vbox
 from ..workers import run_task
 
+SESSION_ICONS = {"sort": "sort", "duplicates": "copy", "watch": "eye", "rename": "edit", "cleanup": "sparkles",
+                 "scheduled": "clock", "device": "drive"}
 STATUS_LEVEL = {
     "completed": "success", "completed_errors": "warning", "cancelled": "neutral", "interrupted": "error",
     "running": "info", "paused": "info", "undone": "neutral", "partially_undone": "warning",
@@ -202,7 +204,7 @@ class HistoryPage(QWidget):
                                   fmt_int(files), fmt_size(s.summary.get("bytes", 0) or self._bytes(s)),
                                   tr(f"status.{s.status}")])
             it.setData(0, Qt.UserRole, s.id)
-            it.setIcon(1, icons.icon({"sort": "sort", "duplicates": "copy", "watch": "eye"}.get(s.kind, "sort")))
+            it.setIcon(1, icons.icon(SESSION_ICONS.get(s.kind, "sort")))
             c = theme.colors()
             color = {"success": c["success"], "warning": c["warning"], "error": c["danger"]}.get(
                 STATUS_LEVEL.get(s.status, ""), c["text2"])

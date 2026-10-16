@@ -22,13 +22,15 @@ from .. import __version__
 from . import icons, theme
 from .context import AppContext
 from .i18n import fmt_date, plural, set_language, tr
+from .pages.analysis import AnalysisPage
+from .pages.automation import AutomationPage
 from .pages.duplicates import DuplicatesPage
 from .pages.history import HistoryPage
 from .pages.home import HomePage
+from .pages.rename import RenamePage
 from .pages.rules import RulesPage
 from .pages.settings import SettingsPage
 from .pages.sort import SortPage
-from .pages.watch import WatchPage
 from .widgets import confirm, hbox, label, vbox
 
 log = logging.getLogger(__name__)
@@ -37,8 +39,10 @@ PAGES = [
     ("home", "home", HomePage),
     ("sort", "sort", SortPage),
     ("duplicates", "copy", DuplicatesPage),
+    ("rename", "edit", RenamePage),
+    ("analysis", "pie", AnalysisPage),
     ("rules", "rules", RulesPage),
-    ("watch", "eye", WatchPage),
+    ("watch", "zap", AutomationPage),
     ("history", "history", HistoryPage),
     ("settings", "settings", SettingsPage),
 ]
@@ -62,6 +66,9 @@ class MainWindow(QMainWindow):
         ctx.rebuildRequested.connect(self.rebuild)
         ctx.busyChanged.connect(self._busy_changed)
         ctx.watchEvent.connect(self._watch_event)
+        self._click_action = None
+        self.tray.messageClicked.connect(self._message_clicked)
+        self._start_device_monitor()
 
     # -- construction --------------------------------------------------------------
     def _build(self, page: str = "home") -> None:
@@ -174,9 +181,121 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
-    def notify(self, title: str, text: str) -> None:
-        if self.ctx.config.get("notifications", True) and QSystemTrayIcon.supportsMessages():
-            self.tray.showMessage(title, text, icons.app_icon(), 5000)
+    def notify(self, title: str, text: str, on_click=None, force: bool = False) -> None:
+        """Notification Windows. ``on_click`` est appelé si l'utilisateur clique dessus."""
+        if (force or self.ctx.config.get("notifications", True)) and QSystemTrayIcon.supportsMessages():
+            self._click_action = on_click
+            self.tray.showMessage(title, text, icons.app_icon(), 8000 if on_click else 5000)
+
+    def _message_clicked(self) -> None:
+        action, self._click_action = self._click_action, None
+        if action is not None:
+            action()
+        else:
+            self.show_window()
+
+    def handle_message(self, message: str) -> None:
+        """Demande venant d'une autre instance (menu clic droit, nouveau lancement…)."""
+        if message.startswith("sort:"):
+            path = message[5:]
+            self.show_window()
+            self.go("sort", {"sources": [path]})
+        elif message == "quit":
+            if not self.ctx.busy:
+                self._quitting = True
+                self.tray.hide()
+                QApplication.instance().quit()
+        else:
+            self.show_window()
+
+    # -- disques externes -----------------------------------------------------------
+    def _start_device_monitor(self) -> None:
+        from ..core.devices import DeviceMonitor
+
+        try:
+            self._devices = DeviceMonitor()
+        except Exception:
+            log.exception("Détection des disques indisponible")
+            return
+        self._device_timer = QTimer(self)
+        self._device_timer.setInterval(4000)
+        self._device_timer.timeout.connect(self._poll_devices)
+        self._device_timer.start()
+
+    def _poll_devices(self) -> None:
+        from ..core import devices
+
+        try:
+            new = self._devices.poll()
+        except Exception:
+            log.exception("Détection des disques")
+            return
+        for vol in new:
+            rule = devices.find_rule(self.ctx.config.get("devices", []), vol)
+            action = (rule or {}).get("action", "none")
+            if rule and action == "auto":
+                self._auto_sort_device(vol, rule)
+            elif rule and action == "ask":
+                self.notify(tr("devices.notify_title", name=vol.display), tr("devices.notify_ask"),
+                            on_click=lambda v=vol, r=rule: self._open_device(v, r), force=True)
+            elif rule is None and vol.kind == "removable" and self.ctx.config.get("devices_ask_unknown", True):
+                self.notify(tr("devices.notify_title", name=vol.display), tr("devices.notify_unknown"),
+                            on_click=lambda v=vol: self._open_device(v, None), force=True)
+
+    def _device_source(self, vol, rule) -> str:
+        import os
+
+        sub = (rule or {}).get("subfolder", "").strip("\\/ ")
+        path = os.path.join(vol.root, sub) if sub else vol.root
+        return path if os.path.isdir(path) else vol.root
+
+    def _open_device(self, vol, rule) -> None:
+        self.show_window()
+        self.go("sort", {"sources": [self._device_source(vol, rule)]})
+        page = self.pages["sort"]
+        if rule:
+            setup = page.setup
+            setup.profile.setCurrentIndex(max(0, setup.profile.findData(rule.get("profile"))))
+            if rule.get("destination"):
+                setup.to_folder.setChecked(True)
+                setup.dest.setText(rule["destination"])
+
+    def _auto_sort_device(self, vol, rule) -> None:
+        if self.ctx.busy:
+            self.notify(tr("devices.notify_title", name=vol.display), tr("devices.notify_busy"),
+                        on_click=lambda: self._open_device(vol, rule), force=True)
+            return
+        from ..core.engine import SortRequest
+        from ..core.models import TaskControl
+        from .workers import run_task
+
+        source = self._device_source(vol, rule)
+        dest = rule.get("destination", "")
+        req = SortRequest(sources=[source], profile=self.ctx.config.profile(rule.get("profile")), destination=dest,
+                          in_place=not dest, recursive=True)
+        if self.ctx.engine.check_request(req):
+            self._open_device(vol, rule)
+            return
+
+        def work(control):
+            _scan, plan = self.ctx.engine.analyze(req, control)
+            if plan.errors or not plan.active_ops():
+                return None
+            return self.ctx.engine.execute(plan, control, "device", vol.display)
+
+        def done(result):
+            self.ctx.set_busy(False)
+            self.ctx.sessionsChanged.emit()
+            if result is not None:
+                self.notify(tr(result.message), tr("devices.notify_done", n=result.files, name=vol.display),
+                            on_click=lambda: self.go("history", {"session": result.session_id}), force=True)
+
+        def failed(exc):
+            self.ctx.set_busy(False)
+            log.error("Rangement automatique du disque %s : %s", vol.display, exc)
+
+        self.ctx.set_busy(True, tr("busy.sort"))
+        run_task(work, TaskControl(), on_done=done, on_error=failed)
 
     def _watch_event(self, event) -> None:
         if event.moved or event.failed:

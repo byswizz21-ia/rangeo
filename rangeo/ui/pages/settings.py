@@ -226,6 +226,24 @@ class SettingsPage(ScrollPage):
                             folders=True))
         b.addWidget(pr)
 
+        # --- intégration Windows ---
+        from ...core import winintegration as wi
+
+        w = Card(tr("settings.windows"), None, "monitor")
+        self.menu_toggle = Toggle(wi.context_menu_registered())
+        self.menu_toggle.toggled.connect(self._context_menu)
+        w.add(Row(tr("settings.context_menu"), tr("settings.context_menu_text"), self.menu_toggle))
+        irow = hbox(spacing=8)
+        if wi.is_frozen() and not wi.is_installed_copy():
+            irow.addWidget(button(tr("install.install"), "download", "primary", on_click=self._install))
+        if wi.is_installed_copy() or wi.installed():
+            irow.addWidget(button(tr("install.uninstall"), "trash", "danger", on_click=self._uninstall))
+        if not wi.is_frozen():
+            irow.addWidget(label(tr("install.dev_mode"), "Faint", wrap=True), 1)
+        irow.addStretch(1)
+        w.add(irow)
+        b.addWidget(w)
+
         # --- données ---
         dt = Card(tr("settings.data"), tr("settings.data_text"), "archive")
         row = hbox(spacing=8)
@@ -285,15 +303,62 @@ class SettingsPage(ScrollPage):
         except OSError as exc:
             error(self, tr("settings.autostart"), str(exc))
 
+    def _context_menu(self, on: bool) -> None:
+        from ...core import winintegration as wi
+
+        try:
+            if on:
+                wi.register_context_menu(tr("winmenu.label"))
+            else:
+                wi.unregister_context_menu()
+            self.ctx.config.set("context_menu", on)
+        except OSError as exc:
+            error(self, tr("settings.context_menu"), str(exc))
+
+    def _install(self) -> None:
+        import subprocess
+
+        from ...core import winintegration as wi
+        from PySide6.QtWidgets import QApplication
+
+        if not confirm(self, tr("install.install"), tr("install.install_text", path=wi.install_dir()),
+                       tr("install.install")):
+            return
+        try:
+            exe = wi.install()
+        except Exception as exc:
+            error(self, tr("install.install"), tr("install.failed"), str(exc))
+            return
+        if self.ctx.config.get("context_menu"):
+            pass  # le menu sera réenregistré par la copie installée
+        info(self, tr("install.done"), tr("install.done_text"))
+        win = self.window()
+        if hasattr(win, "_quitting"):
+            win._quitting = True
+            win.tray.hide()
+        subprocess.Popen([exe], close_fds=True)
+        QApplication.instance().quit()
+
+    def _uninstall(self) -> None:
+        import subprocess
+
+        from ...core import winintegration as wi
+
+        exe = wi.installed_exe() if wi.installed() else None
+        if exe:
+            subprocess.Popen([exe, "--uninstall"], close_fds=True)
+
     def _export(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, tr("settings.export"),
-                                              os.path.expanduser("~/rangeo-configuration.json"), "JSON (*.json)")
+                                              os.path.expanduser("~/rangeo-configuration.json"),
+                                              "JSON (*.json);;YAML (*.yaml *.yml)")
         if path:
             self.ctx.config.export_all(path)
             info(self, tr("settings.export"), tr("settings.export_done"))
 
     def _import(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, tr("settings.import"), os.path.expanduser("~"), "JSON (*.json)")
+        path, _ = QFileDialog.getOpenFileName(self, tr("settings.import"), os.path.expanduser("~"),
+                                              "Rangeo (*.json *.yaml *.yml)")
         if not path:
             return
         try:

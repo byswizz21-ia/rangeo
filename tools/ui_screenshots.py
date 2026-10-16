@@ -70,7 +70,7 @@ def main() -> None:
     # une vraie session pour remplir l'historique et l'accueil
     req = SortRequest(sources=[src], profile=cfg.profile("general"), destination=os.path.join(work, "Rangement"))
     scan, plan = engine.analyze(req, TaskControl())
-    for name in ("home", "sort", "duplicates", "rules", "watch", "history", "settings"):
+    for name in ("home", "sort", "duplicates", "rename", "analysis", "rules", "watch", "history", "settings"):
         win.go(name)
         shot(f"page_{name}")
 
@@ -101,6 +101,39 @@ def main() -> None:
     dup.stack.setCurrentWidget(dup.results_page)
     win.go("duplicates")
     shot("duplicates_results")
+
+    import time as _t
+
+    def wait(cond, timeout=120):
+        end = _t.time() + timeout
+        while _t.time() < end and not cond():
+            app.processEvents()
+            _t.sleep(0.02)
+
+    ren = win.pages["rename"]
+    win.go("rename", {"sources": [os.path.join(work, "Rangement", "Images")]})
+    ren.recursive.setChecked(True)
+    wait(lambda: bool(ren.entries) and not ctx.busy)
+    ren.preset.setCurrentIndex(ren.preset.findData("datetime"))
+    ren.separators.setCurrentIndex(ren.separators.findData("spaces"))
+    ren.refresh_preview()
+    shot("rename_preview")
+
+    ana = win.pages["analysis"]
+    win.go("analysis", {"path": work})
+    ana.start()
+    wait(lambda: ana.stack.currentIndex() == 2)
+    shot("analysis_map")
+    ana.tabs.setCurrentIndex(3)
+    shot("analysis_temp")
+    ana.tabs.setCurrentIndex(7)
+    shot("analysis_stats")
+
+    auto = win.pages["watch"]
+    win.go("watch", {"tab": 1})
+    shot("automation_schedule")
+    win.go("watch", {"tab": 2})
+    shot("automation_devices")
 
     rules = win.pages["rules"]
     win.go("rules")

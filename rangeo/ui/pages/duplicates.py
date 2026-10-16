@@ -40,7 +40,11 @@ from ..widgets import (
     vbox,
 )
 from ..workers import run_task
+from .. import media
 from .sort import ResultStep, _clear_layout
+
+MODES = ("exact", "images", "music", "videos")
+MODE_ICONS = {"exact": "copy", "images": "image", "music": "music", "videos": "video"}
 
 ACTIONS = ("move", "trash", "hardlink")
 
@@ -66,6 +70,26 @@ class DuplicatesPage(QWidget):
         self.recursive.setChecked(True)
         card.add(self.recursive)
         setup.body.addWidget(card)
+
+        mode_card = Card(tr("dups.what"), None, "search")
+        self.mode = QComboBox()
+        for m in MODES:
+            self.mode.addItem(icons.icon(MODE_ICONS[m]), tr(f"dups.mode_{m}"), m)
+        mode_card.add(self.mode)
+        self.mode_hint = label("", "Muted", wrap=True)
+        mode_card.add(self.mode_hint)
+        srow = hbox(spacing=8)
+        self.sens_label = label(tr("dups.sensitivity"))
+        srow.addWidget(self.sens_label)
+        self.sensitivity = QComboBox()
+        for s in ("strict", "normal", "loose"):
+            self.sensitivity.addItem(tr(f"dups.sens_{s}"), s)
+        self.sensitivity.setCurrentIndex(1)
+        srow.addWidget(self.sensitivity)
+        srow.addStretch(1)
+        mode_card.add(srow)
+        self.mode.currentIndexChanged.connect(self._mode_changed)
+        setup.body.addWidget(mode_card)
 
         opts = Card(tr("dups.options"), tr("dups.options_text"), "settings")
         row = hbox(spacing=8)
@@ -120,13 +144,14 @@ class DuplicatesPage(QWidget):
         split = QSplitter(Qt.Horizontal)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels([tr("dups.col_file"), tr("dups.col_folder"), tr("dups.col_date"),
-                                   tr("preview.col_size")])
+                                   tr("dups.col_quality"), tr("preview.col_size")])
         self.tree.header().setSectionResizeMode(0, QHeaderView.Interactive)
         self.tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
         self.tree.header().setStretchLastSection(False)
         self.tree.setColumnWidth(0, 320)
         self.tree.setColumnWidth(2, 130)
-        self.tree.setColumnWidth(3, 90)
+        self.tree.setColumnWidth(3, 110)
+        self.tree.setColumnWidth(4, 90)
         self.tree.setTextElideMode(Qt.ElideMiddle)
         self.tree.itemChanged.connect(self._item_changed)
         self.tree.currentItemChanged.connect(self._current_changed)
@@ -139,6 +164,8 @@ class DuplicatesPage(QWidget):
         self.detail = label(tr("dups.select_hint"), "Muted", wrap=True, selectable=True)
         self.detail.setTextFormat(Qt.RichText)
         side.add(self.detail)
+        self.play_btn = button(tr("media.play"), "play", "ghost", on_click=self._play_current)
+        side.add(self.play_btn)
         side.add(button(tr("preview.show_source"), "folder_open", "ghost", on_click=self._open_current))
         side.body.addStretch(1)
         side.setMaximumWidth(280)
@@ -165,7 +192,9 @@ class DuplicatesPage(QWidget):
         for w in (self.setup_page, self.progress_page, self.results_page, self.result_step):
             self.stack.addWidget(w)
         self._action_changed()
+        self._mode_changed()
         self._updating = False
+        self.similar = False
 
     def receive(self, payload) -> None:
         if payload and payload.get("sources") and not self.ctx.busy:
@@ -177,6 +206,13 @@ class DuplicatesPage(QWidget):
 
     def _action_changed(self) -> None:
         self.action_hint.setText(tr(f"dups.action_{self.action.currentData()}_hint"))
+
+    def _mode_changed(self) -> None:
+        mode = self.mode.currentData()
+        self.mode_hint.setText(tr(f"dups.mode_{mode}_hint"))
+        similar = mode != "exact"
+        self.sens_label.setVisible(similar)
+        self.sensitivity.setVisible(similar)
 
     # -- recherche ---------------------------------------------------------------
     def search(self) -> None:
@@ -199,8 +235,14 @@ class DuplicatesPage(QWidget):
         self.progress.attach(self.control)
         self.stack.setCurrentWidget(self.progress_page)
         self.ctx.set_busy(True, tr("busy.duplicates"))
-        run_task(self.ctx.engine.find_duplicates, folders, self.control, self.recursive.isChecked(),
-                 on_done=self._found, on_error=self._failed)
+        mode = self.mode.currentData()
+        self.similar = mode != "exact"
+        if self.similar:
+            run_task(self.ctx.engine.find_similar, folders, mode, self.sensitivity.currentData(), self.control,
+                     self.recursive.isChecked(), on_done=self._found, on_error=self._failed)
+        else:
+            run_task(self.ctx.engine.find_duplicates, folders, self.control, self.recursive.isChecked(),
+                     on_done=self._found, on_error=self._failed)
 
     def _failed(self, exc) -> None:
         self.progress.detach()
@@ -213,7 +255,16 @@ class DuplicatesPage(QWidget):
         self.progress.detach()
         self.ctx.set_busy(False)
         _scan, self.groups = result
+        # les liens physiques n'ont de sens que pour des fichiers strictement identiques
+        index = self.action.findData("hardlink")
+        item = self.action.model().item(index)
+        if item is not None:
+            item.setEnabled(not self.similar)
+        if self.similar and self.action.currentData() == "hardlink":
+            self.action.setCurrentIndex(self.action.findData("move"))
         self._fill()
+        if self.similar and self.groups:
+            self.banner_box.addWidget(Banner("warning", tr("dups.similar_warning")))
         self.stack.setCurrentWidget(self.results_page)
 
     # -- affichage ---------------------------------------------------------------
@@ -232,8 +283,8 @@ class DuplicatesPage(QWidget):
             group = ft.group_of(g.files[0].kind)
             top.setIcon(0, icons.kind_icon(group))
             top.setText(0, tr("dups.group_title", n=len(g.files), name=g.keep.name))
-            top.setText(3, fmt_size(g.size))
-            top.setTextAlignment(3, Qt.AlignRight | Qt.AlignVCenter)
+            top.setText(4, fmt_size(g.size) if not g.similar else "")
+            top.setTextAlignment(4, Qt.AlignRight | Qt.AlignVCenter)
             top.setToolTip(0, tr("dups.group_tip", space=fmt_size(g.wasted)))
             font = top.font(0)
             font.setBold(True)
@@ -246,8 +297,9 @@ class DuplicatesPage(QWidget):
                 child.setText(1, e.dir)
                 child.setToolTip(1, e.dir)
                 child.setText(2, fmt_date(e.mtime))
-                child.setText(3, fmt_size(e.size))
-                child.setTextAlignment(3, Qt.AlignRight | Qt.AlignVCenter)
+                child.setText(3, quality_text(e))
+                child.setText(4, fmt_size(e.size))
+                child.setTextAlignment(4, Qt.AlignRight | Qt.AlignVCenter)
                 child.setCheckState(0, Qt.Checked if e is g.keep else Qt.Unchecked)
                 self._style_child(child, e is g.keep)
                 top.addChild(child)
@@ -263,7 +315,7 @@ class DuplicatesPage(QWidget):
         c = theme.colors()
         item.setIcon(0, icons.icon("lock" if keep else "trash", c["success"] if keep else c["text3"], 16))
         item.setToolTip(0, tr("dups.keep_tip") if keep else tr("dups.remove_tip"))
-        for col in range(4):
+        for col in range(5):
             item.setForeground(col, theme_color(c["text"] if keep else c["text2"]))
 
     def _update_stats(self) -> None:
@@ -317,19 +369,21 @@ class DuplicatesPage(QWidget):
         c = theme.colors()
         self.detail.setText(f"<b>{_esc(e.name)}</b><br>{_esc(e.dir)}<br>{fmt_size(e.size)} · {fmt_date(e.mtime)}")
         self.thumb.clear()
-        if ft.group_of(e.kind) == "image" and e.size < 60 * 1024 * 1024:
-            reader = QImageReader(e.path)
-            reader.setAutoTransform(True)
-            size = reader.size()
-            if size.isValid():
-                size.scale(440, 330, Qt.KeepAspectRatio)
-                reader.setScaledSize(size)
-            img = reader.read()
-            if not img.isNull():
-                self.thumb.setPixmap(QPixmap.fromImage(img).scaled(220, 165, Qt.KeepAspectRatio,
-                                                                   Qt.SmoothTransformation))
+        q = quality_text(e)
+        if q:
+            self.detail.setText(self.detail.text() + f"<br>{tr('dups.col_quality')} : {q}")
+        self.play_btn.setVisible(media.is_playable(e.ext))
+        if ft.group_of(e.kind) in ("image", "video") and e.size < 4 * 1024 ** 3:
+            pm = media.thumbnail(e.path, e.ext, 220, 165)
+            if pm is not None:
+                self.thumb.setPixmap(pm)
                 return
         self.thumb.setPixmap(icons.pixmap(icons.KIND_ICONS.get(ft.group_of(e.kind), "file"), c["text3"], 56))
+
+    def _play_current(self) -> None:
+        e = self._current_entry()
+        if e is not None:
+            media.play(e.path, self)
 
     def _open_current(self) -> None:
         e = self._current_entry()
@@ -375,6 +429,17 @@ class DuplicatesPage(QWidget):
         self.ctx.sessionsChanged.emit()
         error(self, tr("dups.failed"), str(exc), getattr(exc, "traceback_text", None))
         self.stack.setCurrentWidget(self.results_page)
+
+
+def quality_text(e) -> str:
+    meta = e.meta
+    if meta.get("width") and meta.get("height"):
+        return f"{meta['width']} × {meta['height']}"
+    if meta.get("bitrate"):
+        return f"{int(meta['bitrate']) // 1000} kb/s"
+    if meta.get("pixels"):
+        return f"{meta['pixels'] // 1000} kpx"
+    return ""
 
 
 def theme_color(hex_color: str):

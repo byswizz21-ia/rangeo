@@ -12,7 +12,7 @@ from .. import icons, theme
 from ..context import AppContext
 from ..i18n import fmt_date, fmt_int, fmt_size, tr
 from ..widgets import Card, Chip, DropZone, ScrollPage, StatCard, button, hbox, label, vbox
-from .history import STATUS_LEVEL
+from .history import SESSION_ICONS, STATUS_LEVEL
 
 
 class ActionCard(QFrame):
@@ -48,6 +48,14 @@ class HomePage(ScrollPage):
         hello = label(tr("home.title"), "PageTitle")
         b.addWidget(hello)
         b.addWidget(label(tr("home.subtitle"), "PageSubtitle", wrap=True))
+
+        from ...core import winintegration as wi
+
+        if wi.is_frozen() and not wi.is_installed_copy() and not wi.installed():
+            from ..widgets import Banner
+
+            b.addWidget(Banner("info", tr("home.install_banner"), tr("install.install"),
+                               lambda: ctx.navigate.emit("settings", None)))
 
         drop = DropZone(tr("home.drop_title"), tr("home.drop_text"), tr("home.drop_button"))
         drop.pathsDropped.connect(lambda paths: ctx.navigate.emit("sort", {"sources": paths}))
@@ -187,7 +195,7 @@ class HomePage(ScrollPage):
         for s in sessions:
             w = QWidget()
             lay = hbox(w, spacing=10)
-            lay.addWidget(_icon({"sort": "sort", "duplicates": "copy", "watch": "eye"}.get(s.kind, "sort"),
+            lay.addWidget(_icon(SESSION_ICONS.get(s.kind, "sort"),
                                 theme.colors()["text2"]))
             texts = vbox(spacing=1)
             texts.addWidget(label(tr(f"session.kind_{s.kind}") + (f" — {s.profile}" if s.profile else "")))

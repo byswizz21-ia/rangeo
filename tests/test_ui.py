@@ -28,7 +28,8 @@ def ui(home, monkeypatch):
     monkeypatch.setattr(sys, "excepthook", lambda *exc: errors.append(exc))
     # boîtes de dialogue : on répond « oui » automatiquement
     for mod in ("rangeo.ui.widgets", "rangeo.ui.pages.sort", "rangeo.ui.pages.history", "rangeo.ui.pages.duplicates",
-                "rangeo.ui.pages.rules", "rangeo.ui.pages.watch", "rangeo.ui.pages.settings"):
+                "rangeo.ui.pages.rules", "rangeo.ui.pages.watch", "rangeo.ui.pages.settings", "rangeo.ui.pages.rename",
+                "rangeo.ui.pages.analysis", "rangeo.ui.pages.automation"):
         m = sys.modules.get(mod) or __import__(mod, fromlist=["x"])
         for name in ("confirm",):
             if hasattr(m, name):
@@ -117,8 +118,47 @@ def test_full_ui_flow(ui, tmp_path):
     rules.tabs.setCurrentIndex(1)
     rules._fill_tree()
 
+    # --- Doublons ressemblants ---
+    dup.back()
+    dup.mode.setCurrentIndex(dup.mode.findData("images"))
+    dup.search()
+    wait(lambda: dup.stack.currentWidget() is dup.results_page)
+
+    # --- Renommer ---
+    ren = win.pages["rename"]
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for name in ("Copie de rapport_final.pdf", "notes_reunion (1).txt"):
+        (docs / name).write_bytes(name.encode())
+    win.go("rename", {"sources": [str(docs)]})
+    wait(lambda: bool(ren.entries))
+    ren.separators.setCurrentIndex(ren.separators.findData("spaces"))
+    ren.refresh_preview()
+    assert sorted(i.new_name for i in ren.model.items) == ["notes reunion.txt", "rapport final.pdf"]
+    ren.apply()
+    wait(lambda: not ctx.busy and (docs / "rapport final.pdf").exists())
+
+    # --- Analyse ---
+    ana = win.pages["analysis"]
+    win.go("analysis", {"path": str(tmp_path)})
+    ana.start()
+    wait(lambda: ana.stack.currentIndex() == 2)
+    assert ana.report.total_files > 0
+    if ana.report.root.children:
+        ana._open_node(ana.report.root.children[0])
+    ana._check_corrupt()
+    wait(lambda: ana.stack.currentIndex() == 2 and not ctx.busy)
+
+    # --- Automatisation (sans créer de vraie tâche Windows) ---
+    auto = win.pages["watch"]
+    win.go("watch", {"tab": 1})
+    auto.schedule.fill()
+    win.go("watch", {"tab": 2})
+    auto.devices.fill()
+    win.go("watch", {"tab": 0})
+
     # --- Surveillance ---
-    watch = win.pages["watch"]
+    watch = win.pages["watch"].watch
     win.go("watch")
     watch._add(str(tmp_path))
     assert ctx.config.get("watch")
@@ -130,7 +170,7 @@ def test_full_ui_flow(ui, tmp_path):
     ctx.config.set("language", "en")
     win.rebuild()
     app.processEvents()
-    for name in ("home", "sort", "duplicates", "rules", "watch", "history", "settings"):
+    for name in ("home", "sort", "duplicates", "rename", "analysis", "rules", "watch", "history", "settings"):
         win.go(name)
         app.processEvents()
 

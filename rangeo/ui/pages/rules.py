@@ -620,7 +620,7 @@ class RulesPage(QWidget):
 
     def _import_profile(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, tr("rules.import_profile"), os.path.expanduser("~"),
-                                              "Rangeo (*.json)")
+                                              "Rangeo (*.json *.yaml *.yml)")
         if not path:
             return
         try:
@@ -635,7 +635,7 @@ class RulesPage(QWidget):
         self._flush()
         path, _ = QFileDialog.getSaveFileName(self, tr("rules.export_profile"),
                                               os.path.expanduser(f"~/{self.profile['name']}.rangeo.json"),
-                                              "Rangeo (*.json)")
+                                              "JSON (*.json);;YAML (*.yaml *.yml)")
         if path:
             self.ctx.config.export_profile(self.profile, path)
 

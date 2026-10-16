@@ -72,13 +72,20 @@ class WatchRow(QWidget):
 
 
 class WatchPage(ScrollPage):
-    def __init__(self, ctx: AppContext):
-        super().__init__()
+    def __init__(self, ctx: AppContext, embedded: bool = False):
+        super().__init__(max_width=None if embedded else 1180)
         self.ctx = ctx
         b = self.body
         self.pause_btn = button("", "pause", on_click=self._toggle_pause)
-        b.addWidget(PageHeader(tr("watch.title"), tr("watch.subtitle"), [self.pause_btn]))
-        b.addWidget(Banner("info", tr("watch.how")))
+        if embedded:  # onglet de la page Automatisation
+            self.widget().layout().setContentsMargins(0, 12, 0, 0)
+            row = hbox(spacing=8)
+            row.addWidget(Banner("info", tr("watch.how")), 1)
+            row.addWidget(self.pause_btn, 0, Qt.AlignTop)
+            b.addLayout(row)
+        else:
+            b.addWidget(PageHeader(tr("watch.title"), tr("watch.subtitle"), [self.pause_btn]))
+            b.addWidget(Banner("info", tr("watch.how")))
         self.card = Card(tr("watch.folders"), tr("watch.folders_text"), "eye")
         self.rows_box = vbox(spacing=4)
         self.card.add(self.rows_box)

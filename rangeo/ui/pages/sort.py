@@ -320,6 +320,9 @@ class PreviewStep(QWidget):
         self.detail = label("", "Muted", wrap=True, selectable=True)
         self.detail.setTextFormat(Qt.RichText)
         drow.addWidget(self.detail, 1)
+        self.play_btn = button(tr("media.play"), "play", "ghost", on_click=self._play_current)
+        self.play_btn.hide()
+        drow.addWidget(self.play_btn, 0, Qt.AlignTop)
         detail.add(drow)
         detail.setMaximumHeight(130)
         rl.addWidget(detail)
@@ -572,9 +575,12 @@ class PreviewStep(QWidget):
             if e.date:
                 info.append(tr("preview.date_tip", date=fmt_date(e.date), source=tr(f"date_source.{e.date_source}")))
             meta = e.meta
-            for key in ("camera", "artist", "album", "series", "title"):
+            for key in ("camera", "artist", "album", "series", "title", "product"):
                 if meta.get(key) and not (key == "title" and e.kind not in ("music", "movie")):
                     info.append(f"{tr('meta.' + key)} : {_esc(str(meta[key]))}")
+            if meta.get("city") or meta.get("country"):
+                place = ", ".join(x for x in (meta.get("city"), meta.get("country")) if x)
+                info.append(f"{tr('meta.place')} : {_esc(place)}")
             if e.ext_mismatch and e.real_ext:
                 info.append(tr("preview.mismatch", real=e.real_ext.upper()))
             lines.append(" · ".join(info))
@@ -584,26 +590,29 @@ class PreviewStep(QWidget):
         self._show_thumb(op)
 
     def _show_thumb(self, op) -> None:
+        from .. import media
+
         self.thumb.clear()
         e = op.entry
         c = theme.colors()
-        if e is None or e.is_bundle or ft.group_of(e.kind) != "image" or e.size > 60 * 1024 * 1024 \
-                or e.meta.get("cloud"):
-            group = "bundle" if e is not None and e.is_bundle else ft.group_of(e.kind) if e else "unknown"
-            self.thumb.setPixmap(icons.pixmap(icons.KIND_ICONS.get(group, "file"), c["text3"], 48))
-            return
-        reader = QImageReader(op.src)
-        reader.setAutoTransform(True)
-        size = reader.size()
-        if size.isValid() and size.width() > 0:
-            size.scale(240, 180, Qt.KeepAspectRatio)
-            reader.setScaledSize(size)
-        img = reader.read()
-        if img.isNull():
-            self.thumb.setPixmap(icons.pixmap("image", c["text3"], 48))
-            return
-        pm = QPixmap.fromImage(img).scaled(120, 90, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.thumb.setPixmap(pm)
+        self._current_op = op
+        playable = e is not None and not e.is_bundle and not e.meta.get("cloud") and media.is_playable(e.ext)
+        self.play_btn.setVisible(playable)
+        group = "bundle" if e is not None and e.is_bundle else ft.group_of(e.kind) if e else "unknown"
+        if e is not None and not e.is_bundle and group in ("image", "video") and not e.meta.get("cloud") \
+                and e.size < 4 * 1024 ** 3:
+            pm = media.thumbnail(op.src, e.ext, 120, 90)
+            if pm is not None:
+                self.thumb.setPixmap(pm)
+                return
+        self.thumb.setPixmap(icons.pixmap(icons.KIND_ICONS.get(group, "file"), c["text3"], 48))
+
+    def _play_current(self) -> None:
+        from .. import media
+
+        op = getattr(self, "_current_op", None)
+        if op is not None:
+            media.play(op.src, self)
 
     def _left_menu(self, pos) -> None:
         item = self.left_tree.itemAt(pos)

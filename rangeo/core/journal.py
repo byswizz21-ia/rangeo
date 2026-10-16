@@ -285,6 +285,21 @@ class Journal:
                 "AND op IN ('move','copy','trash','hardlink')", (session_id,)
             ).fetchone()[0]
 
+    def monthly(self, months: int = 12) -> list[tuple[str, int, int, int]]:
+        """[(« AAAA-MM », fichiers rangés, octets rangés, octets libérés)] des derniers mois."""
+        with self._lock:
+            self.flush()
+            rows = self._conn.execute(
+                """SELECT strftime('%Y-%m', s.created, 'unixepoch', 'localtime') AS month,
+                          SUM(CASE WHEN o.op IN ('move','copy') AND s.kind != 'duplicates' THEN 1 ELSE 0 END),
+                          SUM(CASE WHEN o.op IN ('move','copy') AND s.kind != 'duplicates' THEN o.size ELSE 0 END),
+                          SUM(CASE WHEN s.kind IN ('duplicates','cleanup') THEN o.size ELSE 0 END)
+                   FROM operations o JOIN sessions s ON s.id = o.session_id
+                   WHERE o.state = 'done' AND o.op IN ('move','copy','trash','hardlink')
+                   GROUP BY month ORDER BY month DESC LIMIT ?""", (months,)
+            ).fetchall()
+        return [(m, int(f or 0), int(b or 0), int(fr or 0)) for m, f, b, fr in reversed(rows)]
+
     def stats(self) -> dict:
         """Totaux pour la page d'accueil."""
         with self._lock:
