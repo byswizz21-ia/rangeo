@@ -225,6 +225,9 @@ class ScheduleTab(ScrollPage):
             status = tr("schedule.next", when=fmt_date(nxt.timestamp())) if nxt else tr("schedule.disabled")
             if job.get("last_run"):
                 status += " · " + tr("schedule.last", when=fmt_date(job["last_run"]))
+                if job.get("last_result"):
+                    status += " — " + tr(f"schedule.result_{job['last_result']}", n=fmt_int(job.get("last_files", 0)),
+                                         failed=fmt_int(job.get("last_failed", 0)))
             texts.addWidget(label(status, "Faint"))
             lay.addLayout(texts, 1)
             lay.addWidget(button(tr("schedule.run_now"), "play", "ghost", on_click=lambda _=False, j=job: self._run(j)))
@@ -289,7 +292,11 @@ class ScheduleTab(ScrollPage):
             self.ctx.sessionsChanged.emit()
             self.fill()
             if result is None:
-                info(self, job.get("name", ""), tr("schedule.nothing"))
+                last = next((j for j in self.jobs() if j.get("id") == job.get("id")), {})
+                reason = last.get("last_result") or "nothing"
+                text = tr("schedule.nothing") if reason == "nothing" else tr(f"schedule.result_{reason}", n=0,
+                                                                            failed=0)
+                info(self, job.get("name", ""), text)
             else:
                 info(self, tr(result.message), tr("sort.notify_done", n=fmt_int(result.files)))
 

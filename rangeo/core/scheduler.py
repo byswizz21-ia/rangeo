@@ -160,6 +160,28 @@ def next_run(job: dict, now: dt.datetime | None = None) -> dt.datetime | None:
     return None
 
 
+RESULTS = ("done", "done_errors", "nothing", "sources_missing", "invalid", "no_space", "interrupted")
+
+
+def _record(engine: Engine, job: dict, outcome: str, result: ExecResult | None = None) -> None:
+    """Note le résultat du passage dans le rangement planifié (affiché dans Automatisation)."""
+    def apply(jobs):
+        for j in jobs or []:
+            if j.get("id") == job.get("id"):
+                j["last_run"] = dt.datetime.now().timestamp()
+                j["last_result"] = outcome
+                j["last_files"] = result.files if result is not None else 0
+                j["last_failed"] = result.failed if result is not None else 0
+                if result is not None:
+                    j["last_session"] = result.session_id
+        return jobs or []
+
+    try:
+        engine.config.update("schedules", apply)
+    except OSError:
+        log.exception("Rangement planifié : résultat non enregistré")
+
+
 def run_job(engine: Engine, job: dict, control: TaskControl | None = None) -> ExecResult | None:
     """Exécute un rangement planifié (sans aperçu : les règles s'appliquent directement)."""
     control = control or TaskControl()
@@ -167,6 +189,7 @@ def run_job(engine: Engine, job: dict, control: TaskControl | None = None) -> Ex
     sources = [s for s in job.get("sources", []) if os.path.isdir(s)]
     if not sources:
         log.warning("Rangement planifié %s : aucun dossier disponible", job.get("name"))
+        _record(engine, job, "sources_missing")
         return None
     in_place = bool(job.get("in_place", True)) or not job.get("destination")
     req = SortRequest(sources=sources, profile=profile, destination=job.get("destination", ""),
@@ -174,16 +197,19 @@ def run_job(engine: Engine, job: dict, control: TaskControl | None = None) -> Ex
     problems = engine.check_request(req)
     if problems:
         log.warning("Rangement planifié %s impossible : %s", job.get("name"), problems)
+        _record(engine, job, "invalid")
         return None
     _scan, plan = engine.analyze(req, control)
-    if plan.errors or not plan.active_ops():
+    if plan.errors:
+        log.warning("Rangement planifié %s impossible : %s", job.get("name"), plan.errors)
+        _record(engine, job, "no_space" if any(k == "plan.not_enough_space" for k, _ in plan.errors) else "invalid")
+        return None
+    if not plan.active_ops():
+        _record(engine, job, "nothing")
         return None
     result = engine.execute(plan, control, kind="scheduled", profile=job.get("name", ""),
                             cleanup=profile.get("cleanup_empty", True))
-    jobs = engine.config.get("schedules", []) or []
-    for j in jobs:
-        if j.get("id") == job.get("id"):
-            j["last_run"] = dt.datetime.now().timestamp()
-            j["last_session"] = result.session_id
-    engine.config.set("schedules", jobs)
+    outcome = "interrupted" if result.status in ("interrupted", "cancelled") else (
+        "done_errors" if result.failed else "done")
+    _record(engine, job, outcome, result)
     return result

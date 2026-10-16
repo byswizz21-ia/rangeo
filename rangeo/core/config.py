@@ -221,6 +221,16 @@ class Config:
             if save:
                 self.save()
 
+    def update(self, key: str, fn) -> None:
+        """Modifie un réglage à partir de sa valeur ACTUELLE sur le disque (ex. un rangement planifié note son
+        résultat pendant que l'interface ajoute un autre rangement planifié : aucun des deux n'est perdu)."""
+        with self._lock:
+            data = _load_json(self.settings_path)
+            current = _clean_settings(data).get(key) if isinstance(data, dict) else self.settings.get(key)
+            self.settings[key] = fn(copy.deepcopy(current))
+            self._dirty.add(key)
+            self.save()
+
     # -- profils -------------------------------------------------------------------
     def profile(self, profile_id: str | None) -> dict:
         with self._lock:

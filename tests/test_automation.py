@@ -166,3 +166,28 @@ def test_device_monitor_is_light(monkeypatch):
     assert mon.poll() == []
     k.mask |= 1 << 4  # rebranchée
     assert [v.root for v in mon.poll()] == ["E:\\"]
+
+
+def test_scheduled_run_records_its_result(engine, tmp_path):
+    """Chaque passage note son résultat, même quand rien n'a pu être fait, sans effacer un rangement
+    planifié ajouté entre-temps depuis l'interface."""
+    from rangeo.core.config import Config
+
+    src = tmp_path / "Bazar"
+    src.mkdir()
+    (src / "notes.txt").write_text("x")
+    job = scheduler.new_job("Test", [str(src)], "general")
+    engine.config.set("schedules", [job])
+    gui = Config(engine.config.folder)  # l'interface, ouverte pendant le passage
+    gui.update("schedules", lambda jobs: jobs + [scheduler.new_job("Ajouté", [str(src)], "general")])
+    result = scheduler.run_job(engine, job)
+    assert result is not None and result.files == 1
+    jobs = Config(engine.config.folder).get("schedules")
+    assert [j["name"] for j in jobs] == ["Test", "Ajouté"]
+    assert jobs[0]["last_result"] == "done" and jobs[0]["last_files"] == 1
+    # dossier disparu (disque débranché)
+    missing = scheduler.new_job("Disque", [str(tmp_path / "absent")], "general")
+    engine.config.update("schedules", lambda jobs: jobs + [missing])
+    assert scheduler.run_job(engine, missing) is None
+    last = next(j for j in Config(engine.config.folder).get("schedules") if j["id"] == missing["id"])
+    assert last["last_result"] == "sources_missing" and last["last_run"]
