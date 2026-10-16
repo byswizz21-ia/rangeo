@@ -280,3 +280,26 @@ def test_index_prune_runs_at_most_weekly(tmp_path):
         assert idx.prune(365, every_days=0) == 1
     finally:
         idx.close()
+
+
+def test_rule_values_never_widen_silently():
+    """Une valeur illisible ne doit jamais faire correspondre une règle à TOUS les fichiers."""
+    e = _entry("photo.jpg", kind="photo")
+    e.size = 2048
+    e.date = dt.datetime(2023, 7, 16).timestamp()
+
+    def cond(field, op, value):
+        return rules.eval_condition(e, {"field": field, "op": op, "value": value})
+
+    assert cond("date", "between", ["15/07/2023", "20/07/2023"])  # format français compris
+    assert not cond("date", "between", ["01/08/2023", "20/08/2023"])
+    assert not cond("date", "between", ["n'importe quoi", ""])  # avant : vrai pour tous les fichiers
+    assert not cond("size", "between", ["abc", "1 Mo"])
+    assert cond("size", "between", ["1 Ko", "1 024 Ko"])  # espaces entre les chiffres
+    assert rules.parse_size("1 024 Ko") == 1024 * 1024
+    trash_all = {"action": "trash", "conditions": [], "target": ""}
+    assert "rules.err_trash_all" in rules.validate_rule(trash_all)
+    bad_date = {"action": "ignore", "conditions": [{"field": "date", "op": "before", "value": "demain"}]}
+    assert rules.validate_rule(bad_date) == ["rules.err_date"]
+    bad_size = {"action": "ignore", "conditions": [{"field": "size", "op": "gt", "value": "beaucoup"}]}
+    assert rules.validate_rule(bad_size) == ["rules.err_number"]

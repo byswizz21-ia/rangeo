@@ -194,7 +194,8 @@ _SIZE_UNITS = {
 
 
 def parse_size(text: str) -> float | None:
-    m = re.match(r"^\s*([\d.,]+)\s*([a-zA-Z]*)\s*$", str(text))
+    text = re.sub(r"(?<=\d)[\s\u00a0\u202f](?=\d)", "", str(text))  # « 1 024 Ko »
+    m = re.match(r"^\s*([\d.,]+)\s*([a-zA-Z]*)\s*$", text)
     if not m:
         return None
     try:
@@ -210,10 +211,22 @@ def _to_ts(value) -> float | None:
         return None
     if isinstance(value, (int, float)):
         return float(value)
+    text = str(value).strip()
     try:
-        return _dt.datetime.fromisoformat(str(value).strip()).timestamp()
+        return _dt.datetime.fromisoformat(text).timestamp()
     except ValueError:
-        return None
+        pass
+    m = re.match(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$", text)  # « 15/07/2023 »
+    if m:
+        try:
+            return _dt.datetime(int(m.group(3)), int(m.group(2)), int(m.group(1))).timestamp()
+        except ValueError:
+            return None
+    return None
+
+
+def _given(value) -> bool:
+    return value not in (None, "")
 
 
 def _split_list(value) -> list[str]:
@@ -277,8 +290,10 @@ def eval_condition(entry: FileEntry, cond: dict) -> bool:
         if a is None:
             return False
         if op == "between":
-            lo, hi = value if isinstance(value, (list, tuple)) and len(value) == 2 else (None, None)
-            lo, hi = _to_number(lo), _to_number(hi)
+            raw_lo, raw_hi = value if isinstance(value, (list, tuple)) and len(value) == 2 else (None, None)
+            lo, hi = _to_number(raw_lo), _to_number(raw_hi)
+            if (_given(raw_lo) and lo is None) or (_given(raw_hi) and hi is None):
+                return False  # valeur illisible : la condition ne doit pas s'élargir à tous les fichiers
             return (lo is None or a >= lo) and (hi is None or a <= hi)
         v = _to_number(value)
         if v is None:
@@ -303,8 +318,10 @@ def eval_condition(entry: FileEntry, cond: dict) -> bool:
             except (TypeError, ValueError, OSError):
                 return False
         if op == "between":
-            lo, hi = value if isinstance(value, (list, tuple)) and len(value) == 2 else (None, None)
-            lo, hi = _to_ts(lo), _to_ts(hi)
+            raw_lo, raw_hi = value if isinstance(value, (list, tuple)) and len(value) == 2 else (None, None)
+            lo, hi = _to_ts(raw_lo), _to_ts(raw_hi)
+            if (_given(raw_lo) and lo is None) or (_given(raw_hi) and hi is None):
+                return False  # date illisible : la condition ne doit pas s'élargir à tous les fichiers
             if hi is not None:
                 hi += 86399  # date de fin incluse
             return (lo is None or a >= lo) and (hi is None or a <= hi)
@@ -588,16 +605,28 @@ def validate_rule(rule: dict) -> list[str]:
         if ".." in re.split(r"[\\/]", rule.get("target", "")):
             problems.append("rules.err_parent")
 
+    if rule.get("action") == "trash" and not rule.get("conditions"):
+        problems.append("rules.err_trash_all")
+
     def check(conds):
         for c in conds:
             if "conditions" in c:
                 check(c["conditions"])
                 continue
-            if c.get("op") == "matches":
+            op, value = c.get("op"), c.get("value")
+            ftype = FIELD_TYPES.get(c.get("field", ""), "text")
+            if op == "matches":
                 try:
-                    re.compile(str(c.get("value") or ""))
+                    re.compile(str(value or ""))
                 except re.error:
                     problems.append("rules.err_regex")
+            values = list(value) if isinstance(value, (list, tuple)) else [value]
+            if ftype == "date" and op in ("between", "before", "after") \
+                    and any(_given(v) and _to_ts(v) is None for v in values):
+                problems.append("rules.err_date")
+            if ftype in ("number", "size") and op not in ("exists", "not_exists") \
+                    and any(_given(v) and _to_number(v) is None for v in values):
+                problems.append("rules.err_number")
 
     check(rule.get("conditions") or [])
-    return problems
+    return list(dict.fromkeys(problems))
