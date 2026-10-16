@@ -1,5 +1,7 @@
 """Renommage en masse : aperçu, conflits, exécution et annulation."""
 
+import os
+
 import dataset
 from conftest import snapshot
 from rangeo.core import rename
@@ -56,3 +58,52 @@ def test_rename_execute_and_undo(engine, tmp_path):
     assert sorted(p.name for p in d.iterdir()) == ["facture edf.pdf", "notes.txt", "rapport.pdf"]
     engine.undo(result.session_id, TaskControl())
     assert snapshot(d) == before
+
+
+def test_renumbering_and_swaps_without_conflicts(engine, tmp_path):
+    """Renuméroter des fichiers déjà numérotés, ou échanger deux noms, ne crée pas de « (2) » ;
+    l'annulation remet exactement les noms d'avant."""
+    from conftest import snapshot
+    from rangeo.core import rename as rn
+    from rangeo.core.engine import SortRequest
+    from rangeo.core.models import TaskControl
+
+    folder = tmp_path / "Vacances"
+    folder.mkdir()
+    # 3 photos déjà numérotées + une nouvelle à insérer au milieu (tri par date)
+    for i, (name, ts) in enumerate([("Vacances 001.jpg", 10), ("Vacances 002.jpg", 30),
+                                    ("Vacances 003.jpg", 40), ("IMG_9999.jpg", 20)]):
+        p = folder / name
+        p.write_bytes(name.encode() * 10)
+        os.utime(p, (1_600_000_000 + ts, 1_600_000_000 + ts))
+    before = snapshot(folder)
+    scan = engine.scan_and_classify(SortRequest(sources=[str(folder)], profile=engine.config.profile(None),
+                                                in_place=True), TaskControl())
+    opt = rn.RenameOptions(template="Vacances {compteur}", sort_by="date", clean_copies=False)
+    for e in scan.entries:
+        e.date = e.mtime
+    items = rn.preview(scan.entries, opt)
+    names = sorted(i.new_name for i in items)
+    assert names == ["Vacances 001.jpg", "Vacances 002.jpg", "Vacances 003.jpg", "Vacances 004.jpg"], names
+    assert all(i.status != "renamed_conflict" for i in items)
+    result = engine.execute(rn.to_plan(items), TaskControl(), kind="rename")
+    assert result.failed == 0, result.errors
+    assert sorted(os.listdir(folder)) == names
+    assert (folder / "Vacances 002.jpg").read_bytes() == b"IMG_9999.jpg" * 10
+    assert (folder / "Vacances 004.jpg").read_bytes() == b"Vacances 003.jpg" * 10
+    engine.undo(result.session_id, TaskControl())
+    assert snapshot(folder) == before
+
+    # échange de deux noms (cycle) : passe par un nom temporaire
+    a, b = folder / "Vacances 001.jpg", folder / "Vacances 002.jpg"
+    items = [rn.RenameItem(e, "Vacances 002.jpg" if e.name == "Vacances 001.jpg" else "Vacances 001.jpg")
+             for e in scan.entries if e.name in ("Vacances 001.jpg", "Vacances 002.jpg")]
+    plan = rn.to_plan(items)
+    assert len(plan.ops) == 3 and plan.ops[0].rule == rn.TEMP_RULE
+    content_a, content_b = a.read_bytes(), b.read_bytes()
+    result = engine.execute(plan, TaskControl(), kind="rename")
+    assert result.failed == 0 and result.files == 2
+    assert a.read_bytes() == content_b and b.read_bytes() == content_a
+    assert not [n for n in os.listdir(folder) if n.startswith("~rangeo")]
+    engine.undo(result.session_id, TaskControl())
+    assert snapshot(folder) == before

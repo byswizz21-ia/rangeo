@@ -305,7 +305,7 @@ class Journal:
             self.flush()
             return self._conn.execute(
                 "SELECT COUNT(*) FROM operations WHERE session_id = ? AND state = 'done' "
-                "AND op IN ('move','copy','trash','hardlink')", (session_id,)
+                "AND op IN ('move','copy','trash','hardlink') AND COALESCE(rule, '') != 'rename_tmp'", (session_id,)
             ).fetchone()[0]
 
     def done_bytes(self, session_id: int) -> int:

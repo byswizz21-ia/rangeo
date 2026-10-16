@@ -139,8 +139,6 @@ def preview(entries: list[FileEntry], opt: RenameOptions, lang: str = "fr", kind
                 existing = {nkey(de.name) for de in it}
         except OSError:
             existing = set()
-        renaming = {nkey(e.name) for e in group}
-        taken = set(existing)
         counter = opt.start
         planned: list[tuple[FileEntry, str, str]] = []
         for e in group:
@@ -168,25 +166,75 @@ def preview(entries: list[FileEntry], opt: RenameOptions, lang: str = "fr", kind
                 ext = ext.upper()
             new_stem = sanitize_component(new_stem, max_len=200, fallback=stem or "_")
             planned.append((e, new_stem + ext, status))
-        # résolution des conflits : un nom ne peut être pris que par un seul fichier
+        # résolution des conflits : un nom ne peut être pris que par un seul fichier.
+        # Les noms que des fichiers de ce lot vont quitter sont libres (renumérotation, échange de noms) :
+        # l'ordre d'exécution est calculé ensuite par to_plan().
+        leaving = {nkey(e.name) for e, name, _status in planned if nkey(name) != nkey(e.name)}
+        taken = existing - leaving
         for e, name, status in planned:
             own = nkey(e.name)
             if name == e.name:
                 items.append(RenameItem(e, name, "same", False))
                 continue
             key = nkey(name)
-            free = taken - {own}
             if key == own:  # changement de casse uniquement
+                taken.add(key)
                 items.append(RenameItem(e, name, status))
                 continue
-            if key in free:
-                name = unique_name(name, free)
+            if key in taken:
+                name = unique_name(name, taken)
                 status = "renamed_conflict"
                 key = nkey(name)
             taken.add(key)
             items.append(RenameItem(e, name, status))
-        del renaming
     return items
+
+
+TEMP_RULE = "rename_tmp"  # étape intermédiaire d'un échange de noms (non comptée comme un fichier)
+
+
+def _safe_order(ops: list[PlannedOp]) -> list[PlannedOp]:
+    """Ordonne les renommages pour qu'aucun ne vise un nom encore occupé par un autre fichier du lot :
+    « b → c » passe avant « a → b ». Un cycle (a ↔ b) passe par un nom temporaire."""
+    by_src = {nkey(op.src): op for op in ops}
+    done: set[int] = set()
+    ordered: list[PlannedOp] = []
+    temp_n = 0
+    for start in ops:
+        if id(start) in done:
+            continue
+        path: list[PlannedOp] = []
+        on_path: set[int] = set()
+        cur = start
+        cycle_at = None
+        while True:
+            path.append(cur)
+            on_path.add(id(cur))
+            blocker = by_src.get(nkey(cur.dst))
+            if blocker is None or blocker is cur or id(blocker) in done:
+                break
+            if id(blocker) in on_path:
+                cycle_at = blocker
+                break
+            cur = blocker
+        if cycle_at is not None:
+            # on écarte d'abord le fichier qui ferme la boucle sous un nom temporaire
+            folder = os.path.dirname(cycle_at.src)
+            existing = set(by_src)
+            while True:
+                temp_n += 1
+                tmp = os.path.join(folder, f"~rangeo-renommage-{temp_n}{split_ext(cycle_at.src)[1]}")
+                if nkey(tmp) not in existing and not os.path.lexists(xp(tmp)):
+                    break
+            ordered.append(PlannedOp(OP_MOVE, cycle_at.src, tmp, 0, cycle_at.entry, TEMP_RULE,
+                                     note="rename.temporary"))
+            del by_src[nkey(cycle_at.src)]
+            cycle_at.src = tmp
+            by_src[nkey(tmp)] = cycle_at
+        for op in reversed(path):
+            ordered.append(op)
+            done.add(id(op))
+    return ordered
 
 
 def to_plan(items: list[RenameItem]) -> Plan:
@@ -197,6 +245,7 @@ def to_plan(items: list[RenameItem]) -> Plan:
         e = item.entry
         plan.ops.append(PlannedOp(OP_MOVE, e.path, os.path.join(e.dir, item.new_name), e.size, e, "rename",
                                   note="rename." + item.status if item.status != "ok" else ""))
+    plan.ops = _safe_order(plan.ops)
     for i, op in enumerate(plan.ops, 1):
         op.id = i
     plan.sources = sorted({op.entry.root for op in plan.ops if op.entry and op.entry.root})
