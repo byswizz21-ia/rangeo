@@ -341,3 +341,23 @@ def test_reports_export(engine, tmp_path):
     html = html_path.read_text(encoding="utf-8")
     assert "Rapport Rangeo" in html and "a.pdf" in html
     assert "Déplacement" in csv_path.read_text(encoding="utf-8-sig")
+
+
+def test_session_of_live_process_is_not_offered_for_recovery(engine, tmp_path):
+    """Un rangement planifié en cours dans un autre processus ne doit pas être « repris » en double."""
+    import subprocess
+    import sys
+
+    sid = engine.journal.create_session("scheduled", "test", [str(tmp_path)], "")
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        with engine.journal._lock, engine.journal._conn:
+            engine.journal._conn.execute("UPDATE sessions SET pid = ? WHERE id = ?", (proc.pid, sid))
+        assert engine.journal.owner_alive(sid)
+        assert sid not in [s.id for s in engine.journal.unfinished_sessions()]
+        with pytest.raises(RuntimeError):
+            engine.resume(sid, TaskControl())
+    finally:
+        proc.kill()
+        proc.wait()
+    assert sid in [s.id for s in engine.journal.unfinished_sessions()]

@@ -974,5 +974,6 @@
   "install.remove_data": "Also delete my settings, rules and history",
   "install.uninstalled": "Rangeo has been uninstalled.",
   "install.dev_mode": "“Source code” version: installation is available from Rangeo.exe.",
-  "home.install_banner": "Rangeo is not installed yet: install it to have it in the Start menu and to be able to uninstall it cleanly."
+  "home.install_banner": "Rangeo is not installed yet: install it to have it in the Start menu and to be able to uninstall it cleanly.",
+  "history.in_use": "This session is still running in a scheduled sort in the background. Try again once it has finished."
 }

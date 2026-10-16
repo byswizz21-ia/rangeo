@@ -436,6 +436,28 @@ def set_thread_background(on: bool) -> None:
         )
 
 
+def process_alive(pid: int | None) -> bool:
+    """Vrai si le processus existe encore (ex. un rangement planifié qui tourne en arrière-plan)."""
+    if not pid or pid <= 0:
+        return False
+    if not IS_WINDOWS:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+    handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return False
+    try:
+        code = wintypes.DWORD()
+        if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == 259  # STILL_ACTIVE
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
 def human_size(num: float, lang: str = "fr") -> str:
     units = ["o", "Ko", "Mo", "Go", "To"] if lang == "fr" else ["B", "KB", "MB", "GB", "TB"]
     value = float(num)

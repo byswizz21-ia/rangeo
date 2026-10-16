@@ -153,7 +153,9 @@ class Engine:
         return executor.execute_session(session_id, resume=True, retry_failed=retry_failed)
 
     def undo(self, session_id: int, control: TaskControl, only_ids: set[int] | None = None) -> UndoResult:
-        return undo_session(self.journal, session_id, control, only_ids)
+        if self.journal.owner_alive(session_id):
+            raise RuntimeError("session_in_use")  # un autre processus (rangement planifié) l'exécute encore
+        return undo_session(self.journal, session_id, control, only_ids, self.index)
 
     # -- doublons -----------------------------------------------------------------
     def find_duplicates(self, sources: list[str], control: TaskControl,

@@ -31,6 +31,7 @@ class UndoResult:
     failed: int = 0
     errors: list[tuple[str, str]] = field(default_factory=list)
     status: str = jn.S_UNDONE
+    restored: list[str] = field(default_factory=list)  # fichiers remis à leur place d'origine
 
 
 _vol_cache: dict[str, int | None] = {}
@@ -74,7 +75,7 @@ def _move_back(current: str, original: str, is_dir: bool, tag: str, control: Tas
 
 
 def undo_session(journal: jn.Journal, session_id: int, control: TaskControl | None = None,
-                 only_ids: set[int] | None = None) -> UndoResult:
+                 only_ids: set[int] | None = None, index=None) -> UndoResult:
     """Annule les opérations terminées d'une session, de la plus récente à la plus ancienne."""
     control = control or TaskControl()
     result = UndoResult()
@@ -103,9 +104,11 @@ def undo_session(journal: jn.Journal, session_id: int, control: TaskControl | No
             control.advance(0, current=r.dst or r.src or "")
             tag = f"u{r.session_id}-{r.id}"
             try:
-                _undo_one(r, tag, control)
+                restored = _undo_one(r, tag, control)
                 journal.mark(r.id, ST_UNDONE)
                 result.undone += 1
+                if restored and not r.is_dir:
+                    result.restored.append(restored)
             except Cancelled:
                 raise
             except Exception as exc:
@@ -131,6 +134,18 @@ def undo_session(journal: jn.Journal, session_id: int, control: TaskControl | No
             journal.mark(r.id, ST_UNDONE, extra={**r.extra, "kept": "not_empty"})
 
     journal.flush()
+    if index is not None and result.restored:
+        rows = []
+        for path in result.restored:
+            try:
+                st = os.stat(xp(path))
+            except OSError:
+                continue
+            rows.append((path, st.st_size, st.st_mtime))
+        try:
+            index.ignore_files(rows)
+        except Exception:
+            log.exception("Index : fichiers restaurés")
     remaining = journal.counts(session_id).get(ST_DONE, 0)
     result.status = jn.S_UNDONE if result.failed == 0 and remaining == 0 else jn.S_PARTIAL_UNDO
     session = journal.session(session_id)
@@ -157,36 +172,36 @@ def _effectively_done(journal: jn.Journal, session_id: int) -> list[jn.OpRow]:
     return out
 
 
-def _undo_one(r: jn.OpRow, tag: str, control: TaskControl) -> None:
+def _undo_one(r: jn.OpRow, tag: str, control: TaskControl) -> str | None:
+    """Annule une opération. Renvoie le chemin du fichier remis en place (ou None)."""
     if r.op == OP_MOVE:
         current = r.dst
         if not os.path.lexists(xp(current)):
             if os.path.lexists(xp(r.src)):
-                return  # déjà revenu à sa place
+                return None  # déjà revenu à sa place
             raise FileNotFoundError(2, "moved_file_missing", current)
-        _move_back(current, r.src, r.is_dir, tag, control)
+        restored = _move_back(current, r.src, r.is_dir, tag, control)
         replaced = r.extra.get("replaced")
         if replaced:
             trash_mod.restore(r.dst, replaced)
-        return
+        return restored
     if r.op == OP_COPY:
         if not os.path.lexists(xp(r.dst)):
-            return
+            return None
         if os.path.lexists(xp(r.src)):
             trash_mod.trash(r.dst, r.session_id)  # la copie est redondante : à la corbeille
-        else:
-            _move_back(r.dst, r.src, r.is_dir, tag, control)
-        return
+            return None
+        return _move_back(r.dst, r.src, r.is_dir, tag, control)
     if r.op == OP_TRASH:
         if os.path.lexists(xp(r.src)) and r.extra.get("method") != "quarantine":
-            return
-        trash_mod.restore(r.src, r.extra)
-        return
+            return None
+        return trash_mod.restore(r.src, r.extra)
     if r.op == OP_HARDLINK:
         keep = r.extra.get("keep") or r.dst
         if fileops.is_same_file(r.src, keep):
             fileops.unlink_hardlink(r.src, keep, tag)
-        return
+        return None
+    return None
 
 
 def restore_paths_preview(journal: jn.Journal, session_id: int) -> list[tuple[str, str]]:

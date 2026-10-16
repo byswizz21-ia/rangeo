@@ -138,3 +138,31 @@ def test_protection():
     assert p.is_protected(r"E:\System Volume Information")
     assert not p.is_protected(r"D:\Photos\Recovery")
     assert p.destination_problem(os.environ["APPDATA"])
+
+
+def test_config_two_processes_do_not_erase_each_other(tmp_path):
+    """L'interface et un rangement planifié enregistrent chacun leurs réglages : aucun ne perd ceux de l'autre."""
+    from rangeo.core.config import Config
+
+    gui = Config(tmp_path)
+    gui.save()
+    job = Config(tmp_path)  # le rangement planifié démarre pendant que l'interface est ouverte
+    gui.set("conflict", "skip")
+    gui.save_profile({**gui.profile("general"), "name": "Mon profil"})
+    job.set("last_destination", r"D:\Rangé")  # ne doit pas remettre « conflict » ni le profil à l'ancienne valeur
+    fresh = Config(tmp_path)
+    assert fresh.get("conflict") == "skip"
+    assert fresh.get("last_destination") == r"D:\Rangé"
+    assert fresh.profile("general")["name"] == "Mon profil"
+    # suppression d'un profil d'un côté, ajout de l'autre
+    extra = {**gui.profile("general"), "id": "extra", "name": "Extra"}
+    gui.save_profile(extra)
+    job.load()
+    job.delete_profile("extra")
+    gui.set("theme", "dark")
+    fresh = Config(tmp_path)
+    assert "extra" not in [p["id"] for p in fresh.profiles]
+    assert fresh.get("theme") == "dark"
+    # remplacement complet (assistant) : seuls les nouveaux profils restent
+    gui.replace_profiles([{**fresh.profile("general"), "id": "seul", "name": "Seul"}])
+    assert [p["id"] for p in Config(tmp_path).profiles] == ["seul"]

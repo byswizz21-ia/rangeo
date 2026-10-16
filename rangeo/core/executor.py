@@ -219,6 +219,9 @@ class Executor:
         self._session_id = session_id
         start = time.monotonic()
         result = ExecResult(session_id)
+        if resume and self.journal.owner_alive(session_id):
+            raise RuntimeError("session_in_use")  # un rangement planifié est en train de l'exécuter
+        self.journal.claim(session_id)
         session = self.journal.session(session_id)
         states = (ST_PLANNED, ST_RUNNING) + ((ST_FAILED,) if retry_failed else ())
         rows = self.journal.ops(session_id, states)

@@ -47,6 +47,9 @@ class MetaIndex:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.executescript(SCHEMA)
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS ignored (key TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL, "
+            "created REAL NOT NULL) WITHOUT ROWID")
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(files)")}
         if "sig" not in columns:  # V2 : empreintes des doublons ressemblants
             self._conn.execute("ALTER TABLE files ADD COLUMN sig TEXT")
@@ -150,6 +153,31 @@ class MetaIndex:
                     data,
                 )
 
+    # -- fichiers remis en place par une annulation : la surveillance ne doit pas les re-ranger ------------
+    def ignore_files(self, rows: list[tuple[str, int, float]]) -> None:
+        now = time.time()
+        with self._lock:
+            with self._conn:
+                self._conn.executemany(
+                    "INSERT OR REPLACE INTO ignored(key, size, mtime, created) VALUES (?,?,?,?)",
+                    [(nkey(p), s, _mt(m), now) for p, s, m in rows],
+                )
+
+    def ignored_keys(self, items: list[tuple[str, int, float]]) -> set[str]:
+        """Clés des fichiers (inchangés depuis) à ne pas ranger automatiquement."""
+        wanted = {nkey(p): (s, _mt(m)) for p, s, m in items}
+        keys = list(wanted)
+        out = set()
+        with self._lock:
+            for i in range(0, len(keys), self.BATCH):
+                chunk = keys[i:i + self.BATCH]
+                marks = ",".join("?" * len(chunk))
+                for key, size, mtime in self._conn.execute(
+                        f"SELECT key, size, mtime FROM ignored WHERE key IN ({marks})", chunk):
+                    if wanted.get(key) == (size, mtime):
+                        out.add(key)
+        return out
+
     def forget(self, paths: list[str]) -> None:
         with self._lock:
             with self._conn:
@@ -168,6 +196,7 @@ class MetaIndex:
         with self._lock:
             with self._conn:
                 cur = self._conn.execute("DELETE FROM files WHERE seen < ?", (limit,))
+                self._conn.execute("DELETE FROM ignored WHERE created < ?", (limit,))
                 return cur.rowcount
 
     def clear(self) -> None:

@@ -147,7 +147,7 @@ class FirstRunWizard(QDialog):
         from ..core.defaults import default_profiles
 
         if cfg.get("language") != "fr":
-            cfg.profiles = default_profiles(cfg.get("language"))
+            cfg.replace_profiles(default_profiles(cfg.get("language")), save=False)
             cfg.set("duplicates_folder", "_Duplicates", save=False)
         cfg.set("first_run_done", True)
         self.accept()

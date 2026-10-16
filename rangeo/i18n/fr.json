@@ -974,5 +974,6 @@
   "install.remove_data": "Supprimer aussi mes réglages, mes règles et l'historique",
   "install.uninstalled": "Rangeo a été désinstallé.",
   "install.dev_mode": "Version « code source » : l'installation est disponible depuis Rangeo.exe.",
-  "home.install_banner": "Rangeo n'est pas encore installé : installez-le pour l'avoir dans le menu Démarrer et pouvoir le désinstaller proprement."
+  "home.install_banner": "Rangeo n'est pas encore installé : installez-le pour l'avoir dans le menu Démarrer et pouvoir le désinstaller proprement.",
+  "history.in_use": "Cette session est encore en cours dans un rangement planifié qui tourne en arrière-plan. Réessayez quand il sera terminé."
 }

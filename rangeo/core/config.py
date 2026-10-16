@@ -116,6 +116,19 @@ def _load_json(path: Path):
     return None
 
 
+def _clean_settings(data) -> dict:
+    """Paramètres par défaut + valeurs valides lues (une valeur du mauvais type est ignorée)."""
+    settings = copy.deepcopy(DEFAULT_SETTINGS)
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key in settings and type(value) is type(settings[key]) or key in ("window",):
+                settings[key] = value
+    # V2 : nouveau critère « meilleure qualité » si l'utilisateur n'a pas personnalisé la liste
+    if settings.get("dup_keep") == ["preferred", "clean_name", "oldest", "shortest_path"]:
+        settings["dup_keep"] = ["preferred", "best_quality", "clean_name", "oldest", "shortest_path"]
+    return settings
+
+
 def normalize_profile(p: dict, lang: str = "fr") -> dict:
     base = default_profiles(lang)[0]
     out = copy.deepcopy(base)
@@ -136,33 +149,65 @@ class Config:
         self._lock = threading.RLock()
         self.settings: dict = copy.deepcopy(DEFAULT_SETTINGS)
         self.profiles: list[dict] = []
+        # Ce que CE processus a modifié : à l'enregistrement, on relit le disque et on n'écrase que ça
+        # (l'interface et un rangement planifié peuvent tourner en même temps).
+        self._dirty: set[str] = set()
+        self._dirty_profiles: set[str] = set()
+        self._deleted_profiles: set[str] = set()
+        self._replace_profiles = False
         self.load()
 
     # -- chargement / sauvegarde ------------------------------------------------
+    def _read_profiles(self, lang: str) -> list[dict] | None:
+        profiles = _load_json(self.profiles_path)
+        if isinstance(profiles, list):
+            out = [normalize_profile(p, lang) for p in profiles if isinstance(p, dict) and p.get("id")]
+            return out or None
+        return None
+
+    def _clear_dirty(self) -> None:
+        self._dirty.clear()
+        self._dirty_profiles.clear()
+        self._deleted_profiles.clear()
+        self._replace_profiles = False
+
     def load(self) -> None:
         with self._lock:
-            data = _load_json(self.settings_path)
-            settings = copy.deepcopy(DEFAULT_SETTINGS)
-            if isinstance(data, dict):
-                for key, value in data.items():
-                    if key in settings and type(value) is type(settings[key]) or key in ("window",):
-                        settings[key] = value
-            # V2 : nouveau critère « meilleure qualité » si l'utilisateur n'a pas personnalisé la liste
-            if settings.get("dup_keep") == ["preferred", "clean_name", "oldest", "shortest_path"]:
-                settings["dup_keep"] = ["preferred", "best_quality", "clean_name", "oldest", "shortest_path"]
-            self.settings = settings
-            profiles = _load_json(self.profiles_path)
-            lang = settings.get("language", "fr")
-            if isinstance(profiles, list) and profiles:
-                self.profiles = [normalize_profile(p, lang) for p in profiles if isinstance(p, dict)]
-            else:
-                self.profiles = default_profiles(lang)
+            self.settings = _clean_settings(_load_json(self.settings_path))
+            lang = self.settings.get("language", "fr")
+            self.profiles = self._read_profiles(lang) or default_profiles(lang)
+            self._clear_dirty()
 
     def save(self) -> None:
+        """Enregistre les changements de ce processus sans écraser ceux d'un autre (relecture + fusion)."""
         with self._lock:
             self.folder.mkdir(parents=True, exist_ok=True)
-            _atomic_write(self.settings_path, self.settings)
-            _atomic_write(self.profiles_path, self.profiles)
+            data = _load_json(self.settings_path)
+            if isinstance(data, dict):
+                settings = _clean_settings(data)
+                for key in self._dirty:
+                    if key in self.settings:
+                        settings[key] = copy.deepcopy(self.settings[key])
+            else:  # premier enregistrement ou fichier illisible : la mémoire fait foi
+                settings = copy.deepcopy(self.settings)
+            disk = None if self._replace_profiles else self._read_profiles(settings.get("language", "fr"))
+            if disk is None:
+                profiles = copy.deepcopy(self.profiles)
+            else:
+                mine = {p["id"]: p for p in self.profiles}
+                profiles = [copy.deepcopy(mine[p["id"]]) if p["id"] in self._dirty_profiles and p["id"] in mine
+                            else p for p in disk if p["id"] not in self._deleted_profiles]
+                known = {p["id"] for p in profiles}
+                profiles += [copy.deepcopy(p) for p in self.profiles
+                             if p["id"] in self._dirty_profiles and p["id"] not in known]
+                if not profiles:
+                    profiles = copy.deepcopy(self.profiles)
+            _atomic_write(self.settings_path, settings)
+            _atomic_write(self.profiles_path, profiles)
+            # la mémoire reflète maintenant le disque (y compris ce qu'un autre processus a changé)
+            self.settings = settings
+            self.profiles = profiles
+            self._clear_dirty()
 
     # -- paramètres --------------------------------------------------------------
     def get(self, key: str, default=None):
@@ -172,6 +217,7 @@ class Config:
     def set(self, key: str, value, save: bool = True) -> None:
         with self._lock:
             self.settings[key] = value
+            self._dirty.add(key)
             if save:
                 self.save()
 
@@ -192,6 +238,8 @@ class Config:
                     break
             else:
                 self.profiles.append(profile)
+            self._dirty_profiles.add(profile["id"])
+            self._deleted_profiles.discard(profile["id"])
             self.save()
 
     def delete_profile(self, profile_id: str) -> None:
@@ -199,7 +247,21 @@ class Config:
             if len(self.profiles) <= 1:
                 return
             self.profiles = [p for p in self.profiles if p["id"] != profile_id]
+            self._deleted_profiles.add(profile_id)
+            self._dirty_profiles.discard(profile_id)
             self.save()
+
+    def replace_profiles(self, profiles: list[dict], save: bool = True) -> None:
+        """Remplace TOUS les profils (assistant de premier lancement, import complet)."""
+        with self._lock:
+            lang = self.settings.get("language", "fr")
+            new = [normalize_profile(p, lang) for p in profiles if isinstance(p, dict)]
+            if not new:
+                return
+            self.profiles = new
+            self._replace_profiles = True
+            if save:
+                self.save()
 
     # -- export / import -------------------------------------------------------
     def export_all(self, path: str) -> None:
@@ -214,11 +276,12 @@ class Config:
         with self._lock:
             if isinstance(data.get("settings"), dict):
                 for key, value in data["settings"].items():
-                    if key in DEFAULT_SETTINGS:
+                    # même contrôle de type qu'au chargement : un fichier modifié à la main ne casse rien
+                    if key in DEFAULT_SETTINGS and type(value) is type(DEFAULT_SETTINGS[key]):
                         self.settings[key] = value
+                        self._dirty.add(key)
             if isinstance(data.get("profiles"), list) and data["profiles"]:
-                lang = self.settings.get("language", "fr")
-                self.profiles = [normalize_profile(p, lang) for p in data["profiles"] if isinstance(p, dict)]
+                self.replace_profiles(data["profiles"], save=False)
             self.save()
 
     @staticmethod

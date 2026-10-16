@@ -9,6 +9,7 @@ Il sert à :
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 import time
@@ -111,6 +112,9 @@ class Journal:
         # FULL : chaque validation est écrite physiquement (résiste aux coupures de courant)
         self._conn.execute("PRAGMA synchronous=FULL")
         self._conn.executescript(SCHEMA)
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(sessions)")}
+        if "pid" not in columns:  # processus qui exécute la session
+            self._conn.execute("ALTER TABLE sessions ADD COLUMN pid INTEGER")
         self._conn.commit()
         self._pending: list[tuple] = []
         self._last_flush = time.monotonic()
@@ -125,12 +129,26 @@ class Journal:
                        destination: str = "") -> int:
         with self._lock, self._conn:
             cur = self._conn.execute(
-                "INSERT INTO sessions(created, kind, status, profile, sources, destination, summary) "
-                "VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO sessions(created, kind, status, profile, sources, destination, summary, pid) "
+                "VALUES (?,?,?,?,?,?,?,?)",
                 (time.time(), kind, S_RUNNING, profile, json.dumps(sources or [], ensure_ascii=False), destination,
-                 "{}"),
+                 "{}", os.getpid()),
             )
             return cur.lastrowid
+
+    def claim(self, session_id: int) -> None:
+        """Ce processus prend en charge la session (reprise)."""
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE sessions SET pid = ? WHERE id = ?", (os.getpid(), session_id))
+
+    def owner_alive(self, session_id: int) -> bool:
+        """Vrai si la session est en cours dans un AUTRE processus encore actif."""
+        from .fsutil import process_alive
+
+        with self._lock:
+            row = self._conn.execute("SELECT pid FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        pid = row[0] if row else None
+        return bool(pid) and pid != os.getpid() and process_alive(pid)
 
     def set_status(self, session_id: int, status: str, summary: dict | None = None, finished: bool = False) -> None:
         with self._lock:
@@ -171,13 +189,17 @@ class Journal:
             ).fetchall()
         return [self._session_row(r) for r in rows]
 
-    def unfinished_sessions(self) -> list[SessionRow]:
+    def unfinished_sessions(self, include_live: bool = False) -> list[SessionRow]:
+        """Sessions interrompues (plantage, coupure). Celles qu'un autre processus exécute encore sont exclues."""
         with self._lock:
             rows = self._conn.execute(
                 "SELECT id, created, finished, kind, status, profile, sources, destination, summary "
                 "FROM sessions WHERE status IN (?, ?) ORDER BY id", (S_RUNNING, S_PAUSED)
             ).fetchall()
-        return [self._session_row(r) for r in rows]
+        sessions = [self._session_row(r) for r in rows]
+        if include_live:
+            return sessions
+        return [s for s in sessions if not self.owner_alive(s.id)]
 
     def delete_session(self, session_id: int) -> None:
         with self._lock, self._conn:

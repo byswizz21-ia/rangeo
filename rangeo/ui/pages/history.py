@@ -303,7 +303,9 @@ class HistoryPage(QWidget):
             self.progress.hide()
             self.ctx.set_busy(False)
             self.ctx.sessionsChanged.emit()
-            if not isinstance(exc, Cancelled):
+            if str(exc) == "session_in_use":
+                error(self, tr("history.failed"), tr("history.in_use"))
+            elif not isinstance(exc, Cancelled):
                 error(self, tr("history.failed"), str(exc), getattr(exc, "traceback_text", None))
 
         run_task(fn, *args, self.control, on_done=done, on_error=failed)

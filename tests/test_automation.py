@@ -115,3 +115,54 @@ def test_profile_export_import(engine, tmp_path, ext):
     assert len(imported["rules"]) == len(profile["rules"])
     cfg.export_all(str(tmp_path / f"tout.{ext}"))
     cfg.import_all(str(tmp_path / f"tout.{ext}"))
+
+
+def test_device_monitor_is_light(monkeypatch):
+    """Disques déjà connus non réinterrogés, lecteurs réseau ignorés, carte mémoire changée détectée."""
+    queried = []
+
+    class FakeKernel:
+        mask = 0b100  # C:
+        types = {"C:\\": 3}
+
+        def GetLogicalDrives(self):
+            return self.mask
+
+        def SetErrorMode(self, mode):
+            return 0
+
+        def GetDriveTypeW(self, root):
+            return self.types.get(root, 1)
+
+    k = FakeKernel()
+    media = {"C:\\": "0000000C"}
+
+    def info(root, dtype):
+        queried.append(root)
+        return devices.Volume(root, "", media[root], dtype) if root in media else None
+
+    monkeypatch.setattr(devices, "_k32", k)
+    monkeypatch.setattr(devices, "_volume_info", info)
+    mon = devices.DeviceMonitor()
+    assert queried == ["C:\\"]
+    queried.clear()
+    assert mon.poll() == [] and queried == []  # disque fixe connu : pas réinterrogé
+    k.mask |= 1 << 4  # E: clé USB
+    k.types["E:\\"] = 2
+    media["E:\\"] = "0000000E"
+    assert [v.root for v in mon.poll()] == ["E:\\"]
+    assert mon.poll() == []  # toujours la même clé
+    media["E:\\"] = "000000EE"  # autre carte dans le même lecteur
+    assert [v.serial for v in mon.poll()] == ["000000EE"]
+    del media["E:\\"]  # carte retirée puis remise
+    assert mon.poll() == []
+    media["E:\\"] = "000000EE"
+    assert [v.serial for v in mon.poll()] == ["000000EE"]
+    k.mask |= 1 << 25  # Z: lecteur réseau : jamais interrogé
+    k.types["Z:\\"] = 4
+    queried.clear()
+    assert mon.poll() == [] and "Z:\\" not in queried
+    k.mask &= ~(1 << 4)  # E: débranchée
+    assert mon.poll() == []
+    k.mask |= 1 << 4  # rebranchée
+    assert [v.root for v in mon.poll()] == ["E:\\"]

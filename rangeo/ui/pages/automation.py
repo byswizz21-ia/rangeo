@@ -337,7 +337,7 @@ class DevicesTab(ScrollPage):
                 w.setParent(None)
                 w.deleteLater()
         sysdrive = (os.environ.get("SystemDrive") or "C:").upper()
-        connected = [v for v in devices.volumes() if not v.root.upper().startswith(sysdrive) and v.kind != "network"]
+        connected = [v for v in devices.volumes(skip_network=True) if not v.root.upper().startswith(sysdrive)]
         known = {r.get("serial"): r for r in self.rules()}
         shown = set()
         for vol in connected:

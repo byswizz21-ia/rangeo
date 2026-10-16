@@ -130,6 +130,15 @@ class FolderWatcher:
         with self._lock:
             self._pending[path] = (-1, time.monotonic())
 
+    def _not_ignored(self, paths: list[str]) -> list[str]:
+        """Retire les fichiers remis en place par une annulation (l'utilisateur ne veut pas qu'ils bougent)."""
+        try:
+            ignored = self.engine.index.ignored_keys(_stat_rows(paths))
+        except Exception:
+            log.exception("Liste des fichiers ignorés illisible")
+            return paths
+        return [p for p in paths if nkey(p) not in ignored]
+
     def _loop(self) -> None:
         while not self._stop.wait(1.0):
             if self.paused:
@@ -155,6 +164,9 @@ class FolderWatcher:
                 self._process(ready)
 
     def _process(self, paths: list[str]) -> None:
+        paths = self._not_ignored(paths)
+        if not paths:
+            return
         if not self.busy.acquire(blocking=False):
             with self._lock:
                 for p in paths:
@@ -179,7 +191,7 @@ class FolderWatcher:
             for op in plan.ops:
                 if nkey(op.src) not in wanted:
                     op.enabled = False
-            if plan.errors or not plan.active_ops():
+            if not plan.active_ops():
                 return
             # ne jamais traiter un fichier placé dans le dossier de destination lui-même
             dest = plan.dest_root
@@ -200,6 +212,17 @@ class FolderWatcher:
             log.exception("Erreur pendant le rangement automatique de %s", self.folder)
         finally:
             self.busy.release()
+
+
+def _stat_rows(paths: list[str]) -> list[tuple[str, int, float]]:
+    rows = []
+    for p in paths:
+        try:
+            st = os.stat(xp(p))
+        except OSError:
+            continue
+        rows.append((p, st.st_size, st.st_mtime))
+    return rows
 
 
 class WatchManager:
