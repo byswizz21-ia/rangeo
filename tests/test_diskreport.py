@@ -21,6 +21,9 @@ def make_tree(base):
     (root / "Temp").mkdir()
     (root / "Temp" / "Thumbs.db").write_bytes(b"x" * 100)
     (root / "Temp" / "travail.tmp").write_bytes(b"x" * 200)
+    hier = time.time() - 2 * 86400
+    os.utime(root / "Temp" / "travail.tmp", (hier, hier))
+    (root / "Temp" / "en_cours.tmp").write_bytes(b"x" * 200)  # récent : peut-être utilisé, pas proposé
     (root / "Temp" / "._photo.jpg").write_bytes(b"x" * 100)
     (root / "Vide" / "Encore plus vide").mkdir(parents=True)
     (root / "Vide2").mkdir()
@@ -46,7 +49,7 @@ def test_analysis(tmp_path):
     assert sorted(f.name for f in report.temp) == ["._photo.jpg", "Thumbs.db", "travail.tmp"]
     assert sorted(os.path.basename(p) for p in report.empty_dirs) == ["Vide", "Vide2"]
     assert [f.name for f in report.installers] == ["vlc-3.0.1-win64.exe"]
-    assert report.total_files == 11
+    assert report.total_files == 12
     assert report.root.size == sum(c.size for c in report.root.children) + report.root.own_size
     assert report.by_group["archive"][0] == 2
 
@@ -70,3 +73,25 @@ def test_cleanup_and_undo(engine, tmp_path):
     engine.undo(result.session_id, TaskControl())
     assert snapshot(tmp_path) == before
     assert sorted(p for p, _d, _f in os.walk(tmp_path)) == dirs_before
+
+
+def test_programs_and_games_are_never_cleaned(tmp_path):
+    """Dans un jeu ou un logiciel : pas d'« installateur obsolète » ni de dossier vide proposé."""
+    root = tmp_path / "Jeux"
+    for game in ("Jeu A", "Jeu B"):
+        folder = root / game
+        (folder / "Jeu_Data").mkdir(parents=True)
+        (folder / "Jeu.exe").write_bytes(dataset.exe_bytes())
+        (folder / "UnityCrashHandler64 1.0.exe" if game == "Jeu A" else folder / "UnityCrashHandler64 2.0.exe") \
+            .write_bytes(dataset.exe_bytes())
+        (folder / "UnityPlayer.dll").write_bytes(b"MZ")
+        (folder / "GameAssembly.dll").write_bytes(b"MZ")
+        (folder / "Saves").mkdir()  # vide, mais nécessaire au jeu
+    dl = tmp_path / "Telechargements"
+    dl.mkdir()
+    (dl / "Outil 1.0 setup.exe").write_bytes(dataset.exe_bytes())
+    (dl / "Outil 1.0 setup (1).exe").write_bytes(dataset.exe_bytes())  # même version : une copie, pas obsolète
+    (dl / "Outil 2.0 setup.exe").write_bytes(dataset.exe_bytes())
+    report = diskreport.analyze_disk(str(tmp_path), TaskControl())
+    assert sorted(f.name for f in report.installers) == ["Outil 1.0 setup (1).exe", "Outil 1.0 setup.exe"]
+    assert report.empty_dirs == []

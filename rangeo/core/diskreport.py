@@ -36,6 +36,7 @@ DAY = 86400
 _TEMP_NAMES = {"thumbs.db": "thumbs", "ehthumbs.db": "thumbs", "ehthumbs_vista.db": "thumbs", ".ds_store": "mac"}
 _TEMP_EXT = {"tmp": "temp", "temp": "temp", "dmp": "dump", "mdmp": "dump", "hdmp": "dump", "chk": "temp",
              "gid": "temp", "~mp": "temp"}
+_RECENT_TEMP = {"tmp", "temp", "chk", "gid", "~mp"}  # peut-être en cours d'utilisation : seulement après 1 jour
 _PARTIAL_EXT = {"crdownload", "part", "partial", "download", "opdownload", "!ut", "!qb", "filepart"}
 
 
@@ -67,6 +68,7 @@ class DirStat:
     children: list = field(default_factory=list)
     groups: dict = field(default_factory=dict)  # catégorie -> taille (sous-arbre)
     error: str = ""
+    app: bool = False  # dossier d'un logiciel, d'un jeu ou d'un projet : on n'y propose aucun nettoyage
 
     @property
     def name(self) -> str:
@@ -106,8 +108,8 @@ class DiskAnalyzer:
         self._nodes: list[DirStat] = []
         self._biggest: list[tuple[int, str, float, str]] = []
         self._old: list[tuple[int, str, float, str]] = []
-        self._temp: list[FileInfo] = []
-        self._installers: list[FileInfo] = []
+        self._temp: list[tuple[FileInfo, DirStat]] = []
+        self._installers: list[tuple[FileInfo, DirStat]] = []
         self._by_group: dict[str, list[int]] = {}
         self._by_ext: dict[str, list[int]] = {}
         self._errors: list[tuple[str, str]] = []
@@ -144,7 +146,9 @@ class DiskAnalyzer:
         report = DiskReport(root=top, old_years=self.old_years)
         report.biggest = [FileInfo(p, s, m, e) for s, p, m, e in sorted(self._biggest, reverse=True)]
         report.old = [FileInfo(p, s, m, e, "old") for s, p, m, e in sorted(self._old, reverse=True)]
-        report.temp = sorted(self._temp, key=lambda f: -f.size)
+        # .tmp & co. dans un logiciel ou un jeu : peut-être ses propres données, on n'y touche pas
+        report.temp = sorted((f for f, node in self._temp if f.ext not in _RECENT_TEMP or not self._in_app(node)),
+                             key=lambda f: -f.size)
         report.by_group = self._by_group
         report.by_ext = dict(sorted(self._by_ext.items(), key=lambda kv: -kv[1][1])[:40])
         report.total_size, report.total_files = top.size, top.files
@@ -183,7 +187,18 @@ class DiskAnalyzer:
             with self._lock:
                 self._errors.append((node.path, node.error))
             return
+        from .scanner import (
+            GAME_DIR_NAMES,
+            PROJECT_DIR_MARKERS,
+            PROJECT_FILE_MARKERS,
+            SOFTWARE_MARKER_DIRS,
+            SOFTWARE_MARKER_FILES,
+        )
+
         children = []
+        child_names: set[str] = set()
+        exe_stems: set[str] = set()
+        dlls = 0
         big, old, temp, inst = [], [], [], []
         groups: dict[str, int] = {}
         exts: dict[str, list[int]] = {}
@@ -194,6 +209,10 @@ class DiskAnalyzer:
                 try:
                     st = de.stat(follow_symlinks=False)
                     if de.is_dir(follow_symlinks=False):
+                        lower = de.name.lower()
+                        child_names.add(lower)
+                        if lower in SOFTWARE_MARKER_DIRS or lower in PROJECT_DIR_MARKERS:
+                            node.app = True
                         if de.is_symlink() or de.is_junction():
                             continue
                         attrs = getattr(st, "st_file_attributes", 0)
@@ -213,6 +232,12 @@ class DiskAnalyzer:
                 stem, dot = os.path.splitext(lname)
                 ext = dot[1:] if stem else ""
                 size = st.st_size
+                if ext == "dll":
+                    dlls += 1
+                elif ext == "exe":
+                    exe_stems.add(stem)
+                if lname in SOFTWARE_MARKER_FILES or lname in PROJECT_FILE_MARKERS:
+                    node.app = True
                 # fichiers OneDrive non téléchargés : ils n'occupent pas de place sur le disque
                 if is_cloud_placeholder(attrs):
                     size = 0
@@ -228,6 +253,8 @@ class DiskAnalyzer:
                 if st.st_mtime < self.old_limit and size >= 1024 * 1024:
                     old.append((size, path, st.st_mtime, ext))
                 reason = _TEMP_NAMES.get(lname) or _TEMP_EXT.get(ext)
+                if reason and ext in _RECENT_TEMP and now - st.st_mtime < DAY:
+                    reason = None
                 if reason is None and lname.startswith("~$") and now - st.st_mtime > DAY:
                     reason = "lock"
                 if reason is None and lname.startswith("._") and size <= 8192:
@@ -235,9 +262,13 @@ class DiskAnalyzer:
                 if reason is None and ext in _PARTIAL_EXT and now - st.st_mtime > 3 * DAY:
                     reason = "partial"
                 if reason:
-                    temp.append(FileInfo(path, size, st.st_mtime, ext, reason))
+                    temp.append((FileInfo(path, size, st.st_mtime, ext, reason), node))
                 if ext in ("exe", "msi") and not self.protection.is_protected(path):
-                    inst.append(FileInfo(path, size, st.st_mtime, ext, "installer"))
+                    inst.append((FileInfo(path, size, st.st_mtime, ext, "installer"), node))
+        # un programme : plusieurs .dll, ou un .exe à côté de ses données (data/, MonJeu_Data/…)
+        if dlls >= 2 or exe_stems and (child_names & GAME_DIR_NAMES
+                                       or any(f"{s}_data" in child_names for s in exe_stems)):
+            node.app = True
         node.own_files = count
         node.own_size = size_total
         node.groups = groups
@@ -270,9 +301,19 @@ class DiskAnalyzer:
         for c in children:
             q.put(c)
 
+    @staticmethod
+    def _in_app(node: DirStat | None) -> bool:
+        """Le dossier (ou un de ses parents) est-il celui d'un logiciel, d'un jeu ou d'un projet ?"""
+        while node is not None:
+            if node.app:
+                return True
+            node = node.parent
+        return False
+
     def _empty_dirs(self, report: DiskReport) -> None:
+        # dans un logiciel ou un jeu, un dossier vide peut être nécessaire (sauvegardes, journaux…)
         empties = [n for n in self._nodes if n.parent is not None and n.files == 0 and not n.error
-                   and not self.protection.is_protected(n.path)]
+                   and not self.protection.is_protected(n.path) and not self._in_app(n)]
         empty_keys = {id(n) for n in empties}
         report.empty_dirs = [n.path for n in empties if id(n.parent) not in empty_keys]
         report.all_empty_dirs = [n.path for n in sorted(empties, key=lambda n: -n.path.count("\\"))]
@@ -281,19 +322,22 @@ class DiskAnalyzer:
         from .installers import product_info, product_key, version_key
 
         by_product: dict[str, list[tuple[FileInfo, str]]] = {}
-        for f in self._installers:
+        for f, node in self._installers:
+            if self._in_app(node):
+                continue  # programme installé (ex. UnityCrashHandler64.exe de chaque jeu) : jamais un installateur
             stem = os.path.splitext(f.name)[0]
             info = product_info(f.path, stem, f.ext)
-            if not info.get("product"):
+            if not info.get("product") or not version_key(info.get("version")):
                 continue
             f.reason = f"{info['product']} {info.get('version', '')}".strip()
             by_product.setdefault(product_key(info["product"]), []).append((f, info.get("version")))
         for items in by_product.values():
             if len(items) < 2:
                 continue
-            items.sort(key=lambda x: (version_key(x[1]), x[0].mtime), reverse=True)
-            for f, _v in items[1:]:  # toutes les versions sauf la plus récente
-                report.installers.append(f)
+            newest = max(version_key(v) for _f, v in items)
+            for f, v in items:  # seulement les versions plus anciennes (pas les copies de la même version)
+                if version_key(v) < newest:
+                    report.installers.append(f)
         report.installers.sort(key=lambda f: -f.size)
 
 
