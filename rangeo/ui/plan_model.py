@@ -15,7 +15,7 @@ from .i18n import fmt_date, fmt_size, kind_label, tr
 
 PROBLEM_NOTES = {
     "plan.target_in_moving_folder", "plan.protected_target", "plan.into_itself", "plan.path_too_long",
-    "plan.target_is_file", "plan.contains_destination",
+    "plan.target_is_file", "plan.contains_destination", "plan.too_big_for_fat32",
 }
 INFO_NOTES = {"plan.cloud_only", "plan.renamed_conflict", "plan.identical_to_duplicates", "plan.identical_trashed",
               "plan.replaces_existing", "plan.conflict_loser_trashed", "plan.companion"}
