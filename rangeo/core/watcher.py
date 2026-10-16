@@ -68,7 +68,8 @@ class FolderWatcher:
         self._stop = threading.Event()
         self._observer = None
         self._thread: threading.Thread | None = None
-        self.paused = False
+        self.paused = False  # mis en pause par l'utilisateur
+        self.held = False  # mis en attente pendant une opération manuelle (rangement, annulation…)
         self.busy = threading.Lock()
 
     # -- cycle de vie -----------------------------------------------------------
@@ -144,8 +145,8 @@ class FolderWatcher:
 
     def _loop(self) -> None:
         while not self._stop.wait(1.0):
-            if self.paused:
-                continue
+            if self.paused or self.held:
+                continue  # les nouveaux fichiers restent en attente
             ready = []
             now = time.monotonic()
             with self._lock:
@@ -264,6 +265,7 @@ class WatchManager:
         self.watchers: dict[str, FolderWatcher] = {}
         self.history: list[WatchEvent] = []
         self._lock = threading.Lock()
+        self._held = False
 
     def _event(self, event: WatchEvent) -> None:
         with self._lock:
@@ -290,6 +292,7 @@ class WatchManager:
                 continue
             watcher = FolderWatcher(self.engine, cfg["path"], cfg.get("profile", "downloads"),
                                     bool(cfg.get("recursive")), float(cfg.get("delay", 5)), self._event)
+            watcher.held = self._held
             try:
                 watcher.start()
                 self.watchers[key] = watcher
@@ -299,6 +302,13 @@ class WatchManager:
     def set_paused(self, paused: bool) -> None:
         for w in self.watchers.values():
             w.paused = paused
+
+    def hold(self, on: bool) -> None:
+        """Pendant une opération manuelle (rangement, annulation, nettoyage…), la surveillance attend :
+        elle ne déplace pas de fichiers en même temps. Indépendant de la pause choisie par l'utilisateur."""
+        self._held = on
+        for w in self.watchers.values():
+            w.held = on
 
     @property
     def paused(self) -> bool:

@@ -71,3 +71,26 @@ def test_locked_file_is_retried_later(engine, tmp_path, monkeypatch):
     w._process([str(doc)])  # nouvel essai : le fichier est libre
     assert not doc.exists()
     assert str(doc) not in w._retries
+
+
+def test_watch_waits_during_manual_operation(engine, tmp_path, monkeypatch):
+    """Pendant un rangement manuel, la surveillance attend ; elle range ensuite les fichiers arrivés."""
+    monkeypatch.setattr(watcher, "STABLE_SECONDS", 0.5)
+    folder = tmp_path / "Telechargements"
+    folder.mkdir()
+    manager = watcher.WatchManager(engine)
+    w = watcher.FolderWatcher(engine, str(folder), "downloads", recursive=False, delay=2)
+    manager.watchers["x"] = w
+    w.start()
+    try:
+        manager.hold(True)
+        (folder / "Facture.pdf").write_bytes(b"%PDF-1.4 test")
+        time.sleep(4)
+        assert (folder / "Facture.pdf").exists()
+        manager.hold(False)
+        deadline = time.time() + 15
+        while time.time() < deadline and (folder / "Facture.pdf").exists():
+            time.sleep(0.2)
+    finally:
+        w.stop()
+    assert not (folder / "Facture.pdf").exists()

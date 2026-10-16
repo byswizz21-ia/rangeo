@@ -32,4 +32,5 @@ class AppContext(QObject):
     def set_busy(self, busy: bool, label: str = "") -> None:
         self._busy = busy
         self.busy_label = label if busy else ""
+        self.watch.hold(busy)  # la surveillance attend la fin de l'opération en cours
         self.busyChanged.emit(busy)
