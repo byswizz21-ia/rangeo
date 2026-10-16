@@ -18,6 +18,16 @@ from pathlib import Path
 
 from . import appdirs
 
+_OWN_START: list[int | None] = []
+
+
+def _own_start() -> int | None:
+    if not _OWN_START:
+        from .fsutil import process_start
+
+        _OWN_START.append(process_start(os.getpid()))
+    return _OWN_START[0]
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,6 +125,8 @@ class Journal:
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(sessions)")}
         if "pid" not in columns:  # processus qui exécute la session
             self._conn.execute("ALTER TABLE sessions ADD COLUMN pid INTEGER")
+        if "pid_start" not in columns:  # … et son heure de démarrage (numéros de processus réutilisés)
+            self._conn.execute("ALTER TABLE sessions ADD COLUMN pid_start INTEGER")
         self._conn.commit()
         self._pending: list[tuple] = []
         self._last_flush = time.monotonic()
@@ -129,26 +141,33 @@ class Journal:
                        destination: str = "") -> int:
         with self._lock, self._conn:
             cur = self._conn.execute(
-                "INSERT INTO sessions(created, kind, status, profile, sources, destination, summary, pid) "
-                "VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT INTO sessions(created, kind, status, profile, sources, destination, summary, pid, pid_start) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
                 (time.time(), kind, S_RUNNING, profile, json.dumps(sources or [], ensure_ascii=False), destination,
-                 "{}", os.getpid()),
+                 "{}", os.getpid(), _own_start()),
             )
             return cur.lastrowid
 
     def claim(self, session_id: int) -> None:
         """Ce processus prend en charge la session (reprise)."""
         with self._lock, self._conn:
-            self._conn.execute("UPDATE sessions SET pid = ? WHERE id = ?", (os.getpid(), session_id))
+            self._conn.execute("UPDATE sessions SET pid = ?, pid_start = ? WHERE id = ?",
+                               (os.getpid(), _own_start(), session_id))
 
     def owner_alive(self, session_id: int) -> bool:
         """Vrai si la session est en cours dans un AUTRE processus encore actif."""
-        from .fsutil import process_alive
+        from .fsutil import process_start
 
         with self._lock:
-            row = self._conn.execute("SELECT pid FROM sessions WHERE id = ?", (session_id,)).fetchone()
-        pid = row[0] if row else None
-        return bool(pid) and pid != os.getpid() and process_alive(pid)
+            row = self._conn.execute("SELECT pid, pid_start FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        pid, pid_start = row if row else (None, None)
+        if not pid or pid == os.getpid():
+            return False
+        start = process_start(pid)
+        if start is None:
+            return False
+        # même numéro mais autre heure de démarrage : Windows a réattribué le numéro, le vrai est terminé
+        return not (pid_start and start and start != pid_start)
 
     def set_status(self, session_id: int, status: str, summary: dict | None = None, finished: bool = False) -> None:
         with self._lock:

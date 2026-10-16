@@ -351,8 +351,11 @@ def test_session_of_live_process_is_not_offered_for_recovery(engine, tmp_path):
     sid = engine.journal.create_session("scheduled", "test", [str(tmp_path)], "")
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     try:
+        from rangeo.core.fsutil import process_start
+
         with engine.journal._lock, engine.journal._conn:
-            engine.journal._conn.execute("UPDATE sessions SET pid = ? WHERE id = ?", (proc.pid, sid))
+            engine.journal._conn.execute("UPDATE sessions SET pid = ?, pid_start = ? WHERE id = ?",
+                                         (proc.pid, process_start(proc.pid), sid))
         assert engine.journal.owner_alive(sid)
         assert sid not in [s.id for s in engine.journal.unfinished_sessions()]
         with pytest.raises(RuntimeError):
@@ -533,3 +536,29 @@ def test_duplicate_not_trashed_if_kept_file_vanished_or_changed(engine, tmp_path
     assert result.failed == 2
     assert {code for _p, code, _d in result.errors} == {"kept_missing", "not_identical"}
     assert (folder / "a (2).jpg").exists() and (folder / "b (2).jpg").exists()
+
+
+def test_reused_process_number_does_not_block_recovery(engine, tmp_path):
+    """Après un redémarrage, Windows peut donner le numéro de l'ancien Rangeo à un autre programme :
+    la session interrompue doit quand même être proposée à la reprise."""
+    import subprocess
+    import sys
+
+    from rangeo.core.fsutil import process_start
+
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        sid = engine.journal.create_session("sort", "", [str(tmp_path)], "")
+        start = process_start(child.pid)
+        assert start
+        with engine.journal._lock, engine.journal._conn:
+            engine.journal._conn.execute("UPDATE sessions SET pid = ?, pid_start = ? WHERE id = ?",
+                                         (child.pid, start, sid))
+        assert engine.journal.owner_alive(sid)  # vraiment en cours dans un autre processus
+        with engine.journal._lock, engine.journal._conn:
+            engine.journal._conn.execute("UPDATE sessions SET pid_start = ? WHERE id = ?", (start - 10_000_000, sid))
+        assert not engine.journal.owner_alive(sid)  # numéro réutilisé par un autre programme
+        assert sid in [s.id for s in engine.journal.unfinished_sessions()]
+    finally:
+        child.kill()
+        child.wait()

@@ -483,26 +483,47 @@ def set_thread_background(on: bool) -> None:
         )
 
 
-def process_alive(pid: int | None) -> bool:
-    """Vrai si le processus existe encore (ex. un rangement planifié qui tourne en arrière-plan)."""
+if IS_WINDOWS:
+    _k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    _k32.OpenProcess.restype = wintypes.HANDLE
+    _k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    _k32.GetExitCodeProcess.restype = wintypes.BOOL
+    _k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(ctypes.c_ulonglong)] * 4
+    _k32.GetProcessTimes.restype = wintypes.BOOL
+
+
+def process_start(pid: int | None) -> int | None:
+    """Heure de démarrage d'un processus encore actif (None s'il n'existe plus).
+
+    Le couple (numéro, heure de démarrage) identifie un processus même si Windows a réattribué
+    son numéro à un autre programme après un redémarrage."""
     if not pid or pid <= 0:
-        return False
+        return None
     if not IS_WINDOWS:
         try:
             os.kill(pid, 0)
-            return True
+            return 0
         except OSError:
-            return False
-    handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+            return None
+    handle = _k32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
     if not handle:
-        return False
+        return None
     try:
         code = wintypes.DWORD()
-        if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
-            return False
-        return code.value == 259  # STILL_ACTIVE
+        if not _k32.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value != 259:  # STILL_ACTIVE
+            return None
+        created, ended, kernel, user = (ctypes.c_ulonglong() for _ in range(4))
+        if not _k32.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(ended), ctypes.byref(kernel),
+                                    ctypes.byref(user)):
+            return 0
+        return int(created.value)
     finally:
-        ctypes.windll.kernel32.CloseHandle(handle)
+        _k32.CloseHandle(handle)
+
+
+def process_alive(pid: int | None) -> bool:
+    """Vrai si le processus existe encore (ex. un rangement planifié qui tourne en arrière-plan)."""
+    return process_start(pid) is not None
 
 
 def human_size(num: float, lang: str = "fr") -> str:
