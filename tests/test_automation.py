@@ -191,3 +191,16 @@ def test_scheduled_run_records_its_result(engine, tmp_path):
     assert scheduler.run_job(engine, missing) is None
     last = next(j for j in Config(engine.config.folder).get("schedules") if j["id"] == missing["id"])
     assert last["last_result"] == "sources_missing" and last["last_run"]
+
+
+def test_context_menu_path_of_a_whole_drive(tmp_path):
+    """Clic droit sur un disque : Windows transmet « D:" » (guillemet échappé) ; on retrouve « D:\\ »."""
+    import subprocess
+    import sys
+
+    probe = tmp_path / "argv.py"
+    probe.write_text("import sys; print(sys.argv[1])", encoding="utf-8")
+    received = subprocess.run(f'"{sys.executable}" "{probe}" "D:\\"', capture_output=True, text=True).stdout.strip()
+    assert received == 'D:"'  # ce que Windows donne vraiment
+    assert winintegration.clean_cli_path(received) == "D:\\"
+    assert winintegration.clean_cli_path(r"C:\Users\moi\Téléchargements") == r"C:\Users\moi\Téléchargements"

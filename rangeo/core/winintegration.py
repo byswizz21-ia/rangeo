@@ -37,6 +37,15 @@ def _quote(parts: list[str]) -> str:
     return " ".join(f'"{p}"' for p in parts)
 
 
+def clean_cli_path(path: str) -> str:
+    """Chemin reçu du menu clic droit. Pour un disque entier, Windows transmet « "D:\\" » : la barre
+    oblique inverse avant le guillemet le transforme en caractère, et l'on reçoit « D:" »."""
+    path = (path or "").strip().strip('"').strip()
+    if len(path) == 2 and path[1] == ":" and path[0].isalpha():
+        path += "\\"
+    return os.path.normpath(path) if path else path
+
+
 # ---------------------------------------------------------------------------
 # Menu contextuel
 # ---------------------------------------------------------------------------

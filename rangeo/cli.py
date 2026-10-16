@@ -178,10 +178,13 @@ def main(argv: list[str]) -> int:
             out(f"{tr(result.message)} — {fmt_int(result.files)} fichiers.")
             return 0 if result.failed == 0 else 2
 
-        sources = [os.path.abspath(s) for s in args.sources]
+        from .core.winintegration import clean_cli_path
+
+        # « "D:\" » tapé dans l'invite de commandes arrive sous la forme « D:" »
+        sources = [os.path.abspath(clean_cli_path(s)) for s in args.sources]
         if args.command == "sort":
             req = SortRequest(sources=sources, profile=_profile(engine, args.profile),
-                              destination=os.path.abspath(args.dest) if args.dest else "",
+                              destination=os.path.abspath(clean_cli_path(args.dest)) if args.dest else "",
                               in_place=args.in_place or not args.dest, recursive=not args.no_recursive)
             problems = engine.check_request(req)
             if problems:

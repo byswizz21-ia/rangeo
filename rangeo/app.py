@@ -128,7 +128,11 @@ def main(argv: list[str] | None = None) -> int:
     app.setQuitOnLastWindowClosed(False)
     if args.uninstall:
         return _uninstall_gui(app)
-    message = f"sort:{os.path.normpath(args.open_sort)}" if args.open_sort else "show"
+    if args.open_sort:
+        from .core.winintegration import clean_cli_path
+
+        args.open_sort = clean_cli_path(args.open_sort)
+    message = f"sort:{args.open_sort}" if args.open_sort else "show"
     if _send_to_running(message):
         return 0
 
