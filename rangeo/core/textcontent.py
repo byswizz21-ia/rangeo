@@ -26,7 +26,9 @@ def _decode(data: bytes) -> str:
         return data.decode("utf-16", "ignore")
     try:
         return data.decode("utf-8")
-    except UnicodeDecodeError:
+    except UnicodeDecodeError as exc:
+        if exc.start >= len(data) - 4:  # lecture limitée à 1 Mo : dernier caractère coupé en deux
+            return data[:exc.start].decode("utf-8", "ignore")
         return data.decode("cp1252", "ignore")
 
 

@@ -303,3 +303,10 @@ def test_rule_values_never_widen_silently():
     assert rules.validate_rule(bad_date) == ["rules.err_date"]
     bad_size = {"action": "ignore", "conditions": [{"field": "size", "op": "gt", "value": "beaucoup"}]}
     assert rules.validate_rule(bad_size) == ["rules.err_number"]
+
+
+def test_text_cut_in_the_middle_of_an_accent_stays_utf8():
+    from rangeo.core.textcontent import _decode
+
+    data = ("Facture été " * 10).encode("utf-8") + "é".encode("utf-8")[:1]
+    assert _decode(data).startswith("Facture été")
