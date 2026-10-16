@@ -562,3 +562,24 @@ def test_reused_process_number_does_not_block_recovery(engine, tmp_path):
     finally:
         child.kill()
         child.wait()
+
+
+def test_file_over_4gb_not_copied_to_fat32(engine, tmp_path, monkeypatch):
+    """Clé USB en FAT32 : un fichier de 4 Go ou plus est décoché (sinon « disque plein » et tout s'arrête)."""
+    from rangeo.core import planner
+
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    (src / "film.mkv").write_bytes(b"x" * 1000)
+    (src / "petit.txt").write_text("x")
+    monkeypatch.setattr(Executor, "_same_volume", lambda self, a, b: False)
+    monkeypatch.setattr(planner._DirCache, "volume", lambda self, folder: 1 if "src" in folder else 2)
+    monkeypatch.setattr(planner, "filesystem", lambda path: "FAT32")
+    scan = engine.scan_and_classify(_request(engine, src, dst), TaskControl())
+    next(e for e in scan.entries if e.name == "film.mkv").size = 5 * 1024 ** 3
+    plan = engine.plan(_request(engine, src, dst), scan, TaskControl())
+    film = next(o for o in plan.ops if o.src.endswith("film.mkv"))
+    small = next(o for o in plan.ops if o.src.endswith("petit.txt"))
+    assert not film.enabled and film.note == "plan.too_big_for_fat32"
+    assert small.enabled
+    assert not plan.errors  # le gros fichier ne compte pas dans l'espace nécessaire

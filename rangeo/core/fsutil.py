@@ -253,6 +253,11 @@ if IS_WINDOWS:
     _k32.GetDriveTypeW.restype = wintypes.UINT
     _k32.GetVolumePathNameW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
     _k32.GetVolumePathNameW.restype = wintypes.BOOL
+    _k32.GetVolumeInformationW.argtypes = [
+        wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD), wintypes.LPWSTR, wintypes.DWORD,
+    ]
+    _k32.GetVolumeInformationW.restype = wintypes.BOOL
     _k32.GetVolumeNameForVolumeMountPointW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
     _k32.GetVolumeNameForVolumeMountPointW.restype = wintypes.BOOL
     _k32.DeviceIoControl.argtypes = [
@@ -359,6 +364,32 @@ def volume_root(path: str) -> str:
             return unxp(buf.value)
     drive, _ = os.path.splitdrive(path)
     return (drive + "\\") if drive else os.path.abspath(os.sep)
+
+
+_fs_cache: dict[str, str | None] = {}
+
+
+def filesystem(path: str) -> str | None:
+    """Système de fichiers du volume (« NTFS », « FAT32 », « exFAT »…) ou None si inconnu."""
+    try:
+        root = volume_root(path)
+    except OSError:
+        return None
+    with _cache_lock:
+        if root in _fs_cache:
+            return _fs_cache[root]
+    name = None
+    if IS_WINDOWS:
+        fs = ctypes.create_unicode_buffer(64)
+        mount = root if root.endswith("\\") else root + "\\"
+        if _k32.GetVolumeInformationW(mount, None, 0, None, None, None, fs, 64):
+            name = fs.value or None
+    with _cache_lock:
+        _fs_cache[root] = name
+    return name
+
+
+FAT32_MAX_FILE = 4 * 1024 ** 3 - 1  # un fichier de 4 Go ou plus ne tient pas sur une clé en FAT32
 
 
 def volume_guid(path: str) -> str | None:

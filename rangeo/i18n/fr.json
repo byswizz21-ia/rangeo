@@ -229,6 +229,7 @@
   "plan.companion_stays": "Fichier annexe qui reste avec son fichier principal",
   "plan.cloud_only": "Fichier en ligne (OneDrive…) non téléchargé : le sortir de son dossier synchronisé ou le copier vers un autre disque le téléchargerait. Cochez-le si vous le voulez.",
   "plan.not_enough_space": "Pas assez d'espace libre sur le disque de destination",
+  "plan.too_big_for_fat32": "Fichier de 4 Go ou plus : le disque de destination (FAT32) ne peut pas le contenir. Formatez-le en exFAT ou NTFS pour le copier.",
   "op.move": "Déplacement",
   "op.copy": "Copie",
   "op.trash": "Corbeille",

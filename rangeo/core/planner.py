@@ -11,10 +11,12 @@ from . import filetypes as ft
 from . import hashing
 from . import rules as rules_mod
 from .fsutil import (
+    FAT32_MAX_FILE,
     cloud_root_of,
     cloud_roots,
     disk_usage,
     existing_ancestor,
+    filesystem,
     human_size,
     is_strictly_within,
     is_within,
@@ -504,6 +506,11 @@ class Planner:
                 if op.cross_volume or (root is not None and not is_within(op.dst, root)):
                     op.enabled = False
                     op.note = "plan.cloud_only"
+            if op.cross_volume and not op.is_dir and op.size > FAT32_MAX_FILE and op.enabled \
+                    and filesystem(os.path.dirname(op.dst)) == "FAT32":
+                op.enabled = False  # sinon l'écriture échouerait (« disque plein ») et tout s'arrêterait
+                op.note = "plan.too_big_for_fat32"
+                continue
             if op.cross_volume:
                 if op.is_dir and op.entry is not None and op.entry.meta.get("size_partial"):
                     size, count = _bundle_size(op.src, self.control)

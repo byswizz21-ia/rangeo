@@ -229,6 +229,7 @@
   "plan.companion_stays": "Companion file staying with its main file",
   "plan.cloud_only": "Online-only file (OneDrive…): moving it out of its synced folder or copying it to another drive would download it. Check it if you want to.",
   "plan.not_enough_space": "Not enough free space on the destination drive",
+  "plan.too_big_for_fat32": "File of 4 GB or more: the destination drive (FAT32) cannot hold it. Format it as exFAT or NTFS to copy it.",
   "op.move": "Move",
   "op.copy": "Copy",
   "op.trash": "Recycle Bin",
