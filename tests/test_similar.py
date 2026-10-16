@@ -66,3 +66,16 @@ def test_similar_plan_moves_extra_copies(engine, tmp_path):
     engine.undo(result.session_id, TaskControl())
     assert (root / "petite.jpg").exists()
     assert os.path.getsize(root / "petite.jpg") > 0
+
+
+def test_huge_image_is_not_decoded(tmp_path, monkeypatch):
+    """Une image géante n'est pas décodée (mémoire) : pas d'empreinte, pas de plantage."""
+    from PIL import Image
+
+    from rangeo.core import metadata, similar
+
+    path = tmp_path / "geante.png"
+    Image.new("RGB", (400, 300), (10, 120, 200)).save(path)
+    assert similar.image_signature(str(path)) is not None
+    monkeypatch.setattr(metadata, "MAX_DECODE_PIXELS", 100_000)
+    assert similar.image_signature(str(path)) is None

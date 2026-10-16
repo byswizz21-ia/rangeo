@@ -189,6 +189,11 @@ def classify(
             todo.append((e, need_sniff, need_meta))
 
     control.set_stage("analyze", total=len(todo))
+
+    def _stale_meta(meta) -> bool:
+        # version 2.0 : le nombre de disques de l'album n'était pas lu
+        return isinstance(meta, dict) and "disc" in meta and "disc_total" not in meta
+
     cached: dict = {}
     if index is not None and todo:
         try:
@@ -201,7 +206,7 @@ def classify(
     for item in todo:
         e = item[0]
         hit = cached.get(nkey(e.path))
-        if hit is not None and hit[1] is not None:
+        if hit is not None and hit[1] is not None and not _stale_meta(hit[1]):
             apply_inspection(e, hit[0] or None, hit[1])
             control.advance(1)
         else:

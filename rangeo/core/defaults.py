@@ -109,7 +109,7 @@ def default_rules(lang: str = "fr") -> list[dict]:
         rule("subtitle", _kind_is("subtitle"), "move", f"{f['videos']}/{f['subtitles']}"),
         rule("music", _kind_is("music"), "move",
              f"{f['music']}/" + ("{artiste}/{album}" if fr else "{artist}/{album}"),
-             "{piste} - {titre}" if fr else "{track} - {title}"),
+             "[{disque}-]{piste} - {titre}" if fr else "[{disc}-]{track} - {title}"),
         rule("audio", _kind_is("audio"), "move", f"{f['audio']}"),
         rule("pdf", _kind_is("pdf"), "move", f"{f['documents']}/{f['pdf']}/{y}"),
         rule("text", _kind_is("text"), "move", f"{f['documents']}/{f['texts']}"),
@@ -151,6 +151,10 @@ def migrate_rules(rules: list[dict], lang: str = "fr") -> list[dict]:
     for r in out:  # V2 : un sous-dossier par logiciel pour les installateurs
         if r.get("builtin") == "installer" and r.get("target") in old_installers:
             r["target"] += "/{logiciel}" if r["target"].startswith("Logiciels") else "/{software}"
+    for r in out:  # V2.1 : préfixe du disque pour les albums en plusieurs disques
+        if r.get("builtin") == "music" and r.get("rename") in ("{piste} - {titre}", "{track} - {title}"):
+            r["rename"] = "[{disque}-]{piste} - {titre}" if r["rename"].startswith("{piste}") \
+                else "[{disc}-]{track} - {title}"
     for r in out:  # les collections de ROMs sont protégées comme les logiciels
         if r.get("builtin") == "software":
             for c in r.get("conditions", []):

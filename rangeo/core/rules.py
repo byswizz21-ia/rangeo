@@ -114,6 +114,16 @@ VARIABLE_LIST_EN = ["year", "month", "month_name", "day", "hour", "minute", "sec
                     "counter"]
 
 _VAR_RE = re.compile(r"\{([a-zA-Z_]+)\}")
+_FEAT_RE = re.compile(r"\s+(?:[(\[]\s*(?:feat\.?|ft\.?|featuring)|feat\.|ft\.|featuring)\s+.*$",
+                      re.IGNORECASE)
+
+
+def main_artist(artist: str | None) -> str | None:
+    """« Daft Punk feat. Pharrell Williams » → « Daft Punk » (un seul dossier par artiste)."""
+    if not artist:
+        return artist
+    main = _FEAT_RE.sub("", " " + artist).strip()
+    return main or artist
 _OPT_RE = re.compile(r"\[([^\[\]]*\{[a-zA-Z_]+\}[^\[\]]*)\]")
 
 
@@ -332,11 +342,14 @@ def template_values(entry: FileEntry, lang: str, kind_label=None) -> dict[str, s
     values["stem"] = entry.stem
     values["filename"] = entry.name
     values["folder"] = os.path.basename(entry.dir) or None
-    values["artist"] = meta.get("albumartist") or meta.get("artist")
+    values["artist"] = meta.get("albumartist") or main_artist(meta.get("artist"))
     values["album"] = meta.get("album")
     values["title"] = meta.get("title")
     values["track"] = f"{meta['track']:02d}" if isinstance(meta.get("track"), int) else None
-    values["disc"] = str(meta["disc"]) if isinstance(meta.get("disc"), int) else None
+    disc = meta.get("disc")
+    # numéro de disque seulement pour un album en plusieurs disques (sinon « [{disque}-] » disparaît)
+    values["disc"] = str(disc) if isinstance(disc, int) and (disc > 1 or (meta.get("disc_total") or 0) > 1) \
+        else None
     ry = meta.get("release_year") or (meta.get("year") if entry.kind == "music" else None)
     values["release_year"] = str(ry) if ry else None
     values["camera"] = meta.get("camera")

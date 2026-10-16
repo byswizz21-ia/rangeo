@@ -54,7 +54,7 @@ def _dhash_pil(img) -> int:
 def image_signature(path: str) -> int | None:
     from PIL import Image, ImageOps
 
-    from .metadata import _ensure_pil
+    from .metadata import _ensure_pil, too_big_to_decode
 
     _ensure_pil()
     try:
@@ -63,6 +63,9 @@ def image_signature(path: str) -> int | None:
                 im.draft("L", (128, 128))  # JPEG : décodage directement en petit (très rapide)
             except Exception:
                 pass
+            if too_big_to_decode(im):
+                log.debug("Image trop grande pour une empreinte : %s %s", path, im.size)
+                return None
             try:
                 im = ImageOps.exif_transpose(im)
             except Exception:

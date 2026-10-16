@@ -166,3 +166,36 @@ def test_config_two_processes_do_not_erase_each_other(tmp_path):
     # remplacement complet (assistant) : seuls les nouveaux profils restent
     gui.replace_profiles([{**fresh.profile("general"), "id": "seul", "name": "Seul"}])
     assert [p["id"] for p in Config(tmp_path).profiles] == ["seul"]
+
+
+def test_music_multi_disc_and_featuring():
+    """Album en 2 disques : « 1-01 » / « 2-01 » ; « feat. » : rangé avec l'artiste principal."""
+    from rangeo.core.defaults import default_rules, migrate_rules
+
+    music = next(r for r in default_rules("fr") if r["builtin"] == "music")
+
+    def song(**meta):
+        e = FileEntry(dir=os.path.join("C:" + os.sep, "in"), name="x.mp3", ext="mp3", size=1, mtime=0, ctime=0)
+        e.kind = "music"
+        e.meta = meta
+        return e
+
+    base = {"artist": "Daft Punk", "album": "Alive", "title": "Intro", "track": 1}
+    assert rules.render_name(music["rename"], song(**base, disc=1, disc_total=2), "fr") == "1-01 - Intro.mp3"
+    assert rules.render_name(music["rename"], song(**base, disc=2, disc_total=0), "fr") == "2-01 - Intro.mp3"
+    assert rules.render_name(music["rename"], song(**base, disc=1, disc_total=1), "fr") == "01 - Intro.mp3"
+    assert rules.render_name(music["rename"], song(**base), "fr") == "01 - Intro.mp3"
+    for raw in ("Daft Punk feat. Pharrell Williams", "Daft Punk (feat. Pharrell)", "Daft Punk ft. X",
+                "Daft Punk Featuring X", "Daft Punk [feat X]", "Daft Punk"):
+        assert rules.main_artist(raw) == "Daft Punk", raw
+    assert rules.main_artist("Feat") == "Feat"  # le nom entier n'est jamais effacé
+    assert rules.main_artist("Little Feat") == "Little Feat"
+    assert rules.main_artist("The Feat Band") == "The Feat Band"
+    root = os.path.join("D:" + os.sep, "R")
+    folder = rules.render_target_dir(music["target"], song(**{**base, "artist": "Daft Punk feat. X"}), root, "fr")
+    assert folder == os.path.join(root, "Musique", "Daft Punk", "Alive")
+    # profils existants : l'ancien modèle par défaut est mis à jour, un modèle personnalisé non
+    old = [{**music, "rename": "{piste} - {titre}"}]
+    assert next(r for r in migrate_rules(old, "fr") if r["builtin"] == "music")["rename"] == music["rename"]
+    custom = [{**music, "rename": "{titre}"}]
+    assert next(r for r in migrate_rules(custom, "fr") if r["builtin"] == "music")["rename"] == "{titre}"

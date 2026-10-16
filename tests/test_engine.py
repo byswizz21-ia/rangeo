@@ -479,3 +479,15 @@ def test_overwrite_interrupted_by_power_cut_is_undone(engine, tmp_path, monkeypa
     assert undo.failed == 0, undo.errors
     assert (target / "notes.txt").read_text() == "ancien"
     assert (src / "notes.txt").read_text() == "nouveau"
+
+
+def test_destination_equal_to_source_sorts_in_place(engine, tmp_path):
+    """Choisir le même dossier comme source et destination range sur place (avant : rien ne bougeait)."""
+    src = tmp_path / "Bazar"
+    src.mkdir()
+    (src / "facture.pdf").write_bytes(b"%PDF-1.4 facture")
+    (src / "notes.txt").write_text("notes")
+    _scan, plan, result = _sort(engine, src, src)
+    assert result.failed == 0 and result.files == 2
+    assert not (src / "facture.pdf").exists()
+    assert len([p for p in src.rglob("*") if p.is_file()]) == 2

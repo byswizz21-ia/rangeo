@@ -317,11 +317,13 @@ def check_file(path: str, ext: str) -> str | None:
         if ext in _IMAGE_EXT:
             from PIL import Image
 
-            from .metadata import _ensure_pil
+            from .metadata import _ensure_pil, too_big_to_decode
 
             _ensure_pil()
             with Image.open(xp(path)) as im:
                 im.draft("RGB", (256, 256))
+                if too_big_to_decode(im):
+                    return None  # trop grande pour être vérifiée sans risque : considérée saine
                 im.load()
             return None
         if ext in _ZIP_EXT:

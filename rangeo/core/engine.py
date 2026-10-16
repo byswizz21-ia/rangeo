@@ -71,6 +71,16 @@ class Engine:
                         problems.append(("check.source_inside_destination", s))
         return problems
 
+    @staticmethod
+    def _normalize(req: SortRequest) -> SortRequest:
+        """Destination = dossier source : c'est un rangement « sur place ».
+        (Sinon la destination, exclue du scan pour ne pas re-ranger, masquerait toute la source : rien ne bougerait.)"""
+        if not req.in_place and req.destination and req.sources \
+                and all(nkey(norm(s)) == nkey(norm(req.destination)) for s in req.sources):
+            req.in_place = True
+            req.destination = ""
+        return req
+
     def _scan_options(self, req: SortRequest) -> ScanOptions:
         cfg = self.config
         exclude_paths = []
@@ -106,12 +116,14 @@ class Engine:
 
     # -- rangement -------------------------------------------------------------------
     def scan_and_classify(self, req: SortRequest, control: TaskControl) -> ScanResult:
+        self._normalize(req)
         scan_result = scan(req.sources, self._scan_options(req), control)
         classify(scan_result.entries, self._classify_options(), control, self.index)
         return scan_result
 
     def plan(self, req: SortRequest, scan_result: ScanResult, control: TaskControl) -> Plan:
         cfg = self.config
+        self._normalize(req)
         options = PlanOptions(
             dest_root=norm(req.destination) if req.destination and not req.in_place else "",
             in_place=req.in_place,

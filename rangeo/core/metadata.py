@@ -98,8 +98,18 @@ def _ensure_pil() -> None:
         pillow_heif.register_heif_opener()
     except Exception:  # pragma: no cover - optionnel
         log.info("pillow-heif indisponible : les HEIC seront classés sans EXIF")
-    Image.MAX_IMAGE_PIXELS = None
+    Image.MAX_IMAGE_PIXELS = None  # lecture des dimensions / EXIF seulement : jamais de décodage complet ici
     _PIL_READY = True
+
+
+# Au-delà, une image n'est pas décodée (empreinte, contrôle d'intégrité) : plusieurs Go de mémoire sinon,
+# multipliés par le nombre de fils de calcul. Les JPEG sont d'abord réduits au décodage (draft).
+MAX_DECODE_PIXELS = 80_000_000
+
+
+def too_big_to_decode(im) -> bool:
+    width, height = im.size
+    return width * height > MAX_DECODE_PIXELS
 
 
 def _tiff_exif(data: bytes, base: int = 0) -> dict:
@@ -265,7 +275,12 @@ def read_audio_meta(path: str) -> dict:
         meta["album"] = _first(tags, "album")
         meta["title"] = _first(tags, "title")
         meta["track"] = _num(_first(tags, "tracknumber", "track"))
-        meta["disc"] = _num(_first(tags, "discnumber", "disc"))
+        disc_raw = _first(tags, "discnumber", "disc")
+        meta["disc"] = _num(disc_raw)
+        if meta["disc"] is not None:
+            # « 2/3 » ou étiquette séparée ; 0 = inconnu (évite de relire le fichier à chaque analyse)
+            total = _num(str(disc_raw).partition("/")[2]) if "/" in str(disc_raw) else None
+            meta["disc_total"] = total or _num(_first(tags, "disctotal", "totaldiscs")) or 0
         meta["genre"] = _first(tags, "genre")
         year = _num(_first(tags, "date", "originaldate", "year"))
         if year and 1000 <= year <= 2200:
