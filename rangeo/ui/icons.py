@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from PySide6.QtCore import QByteArray, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QIcon, QImage, QLinearGradient, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPainterPath, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
 _P = {
@@ -125,8 +125,9 @@ def register_resources(colors: dict) -> None:
     pixmap.cache_clear()
     folder = data_dir() / "cache"
     folder.mkdir(parents=True, exist_ok=True)
-    check = folder / "check.svg"
-    check.write_bytes(_svg("check", "#FFFFFF", 3))
+    tick = colors.get("accent_text", "#FFFFFF")
+    check = folder / f"check-{tick.lstrip('#')}.svg"
+    check.write_bytes(_svg("check", tick, 3))
     colors["check_url"] = str(check).replace("\\", "/")
     for name, key in (("chevron_down", "down_url"), ("chevron_up", "up_url")):
         path = folder / f"{name}-{colors['text2'].lstrip('#')}.svg"
@@ -135,48 +136,25 @@ def register_resources(colors: dict) -> None:
 
 
 def app_icon_pixmap(size: int = 256) -> QPixmap:
-    """Logo de Rangeo : carré arrondi dégradé avec un dossier et des étincelles."""
+    """Logo de Rangeo, « la pile rangée » : carré pétrole, trois barres triées et le bloc abricot qui se pose.
+
+    Couleurs fixes de la marque (identiques dans les deux thèmes), tracé sur une grille de 24.
+    """
     img = QImage(size, size, QImage.Format_ARGB32_Premultiplied)
     img.fill(Qt.transparent)
     p = QPainter(img)
     p.setRenderHint(QPainter.Antialiasing)
-    rect = QRectF(size * 0.04, size * 0.04, size * 0.92, size * 0.92)
-    grad = QLinearGradient(rect.topLeft(), rect.bottomRight())
-    grad.setColorAt(0.0, QColor("#6A7BFF"))
-    grad.setColorAt(1.0, QColor("#8F4DFF"))
-    path = QPainterPath()
-    path.addRoundedRect(rect, size * 0.22, size * 0.22)
-    p.fillPath(path, grad)
-    # dossier
-    s = size
-    folder = QPainterPath()
-    folder.moveTo(s * 0.22, s * 0.34)
-    folder.lineTo(s * 0.42, s * 0.34)
-    folder.lineTo(s * 0.48, s * 0.40)
-    folder.lineTo(s * 0.78, s * 0.40)
-    folder.quadTo(s * 0.80, s * 0.40, s * 0.80, s * 0.43)
-    folder.lineTo(s * 0.80, s * 0.74)
-    folder.quadTo(s * 0.80, s * 0.77, s * 0.77, s * 0.77)
-    folder.lineTo(s * 0.23, s * 0.77)
-    folder.quadTo(s * 0.20, s * 0.77, s * 0.20, s * 0.74)
-    folder.lineTo(s * 0.20, s * 0.36)
-    folder.quadTo(s * 0.20, s * 0.34, s * 0.22, s * 0.34)
-    p.fillPath(folder, QColor(255, 255, 255, 240))
-    # lignes « rangées »
-    p.setPen(Qt.NoPen)
-    for i, w in enumerate((0.42, 0.32, 0.22)):
-        bar = QPainterPath()
-        bar.addRoundedRect(QRectF(s * 0.30, s * (0.49 + i * 0.085), s * w, s * 0.045), s * 0.02, s * 0.02)
-        p.fillPath(bar, QColor("#7A63FF"))
-    # étincelle
-    star = QPainterPath()
-    cx, cy, r = s * 0.76, s * 0.24, s * 0.09
-    star.moveTo(cx, cy - r)
-    star.quadTo(cx, cy, cx + r, cy)
-    star.quadTo(cx, cy, cx, cy + r)
-    star.quadTo(cx, cy, cx - r, cy)
-    star.quadTo(cx, cy, cx, cy - r)
-    p.fillPath(star, QColor(255, 255, 255))
+    u = size / 24.0
+
+    def rounded(x, y, w, h, r, color):
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(x * u, y * u, w * u, h * u), r * u, r * u)
+        p.fillPath(path, QColor(color))
+
+    rounded(1, 1, 22, 22, 6.2, "#0F6B7A")
+    for y, w in ((6.2, 12.8), (10.5, 9.0), (14.8, 5.4)):
+        rounded(5.6, y, w, 3, 1.5, "#FFFFFF")
+    rounded(13.4, 14.1, 4.4, 4.4, 1.3, "#F29A4A")
     p.end()
     return QPixmap.fromImage(img)
 

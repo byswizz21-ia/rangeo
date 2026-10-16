@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QRadioButton,
     QSpinBox,
-    QTabWidget,
     QTimeEdit,
     QWidget,
 )
@@ -24,6 +23,7 @@ from ...core.models import TaskControl
 from .. import icons, theme
 from ..context import AppContext
 from ..i18n import fmt_date, fmt_int, tr
+from ..motion import TabWidget
 from ..widgets import (
     Banner,
     Card,
@@ -423,7 +423,7 @@ class AutomationPage(QWidget):
         outer = vbox(self, (28, 22, 28, 18), 10)
         outer.addWidget(label(tr("auto.title"), "PageTitle"))
         outer.addWidget(label(tr("auto.subtitle"), "PageSubtitle", wrap=True))
-        self.tabs = QTabWidget()
+        self.tabs = TabWidget()
         self.watch = WatchPage(ctx, embedded=True)
         self.schedule = ScheduleTab(ctx)
         self.devices = DevicesTab(ctx)

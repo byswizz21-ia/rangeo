@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QStackedWidget,
     QSystemTrayIcon,
     QWidget,
 )
@@ -22,6 +21,7 @@ from .. import __version__
 from . import icons, theme
 from .context import AppContext
 from .i18n import fmt_date, plural, set_language, tr
+from .motion import FadeStack, NavPill, SortLoader
 from .pages.analysis import AnalysisPage
 from .pages.automation import AutomationPage
 from .pages.duplicates import DuplicatesPage
@@ -31,7 +31,7 @@ from .pages.rename import RenamePage
 from .pages.rules import RulesPage
 from .pages.settings import SettingsPage
 from .pages.sort import SortPage
-from .widgets import confirm, hbox, label, vbox
+from .widgets import confirm, hbox, label, overline, vbox
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +45,14 @@ PAGES = [
     ("watch", "zap", AutomationPage),
     ("history", "history", HistoryPage),
     ("settings", "settings", SettingsPage),
+]
+
+# Navigation : Accueil, trois groupes, puis Paramètres en bas de la barre latérale.
+NAV = [
+    (None, ["home"]),
+    ("organize", ["sort", "duplicates", "rename"]),
+    ("understand", ["analysis", "history"]),
+    ("automate", ["rules", "watch"]),
 ]
 
 
@@ -77,52 +85,78 @@ class MainWindow(QMainWindow):
         lay = hbox(root, spacing=0)
         sidebar = QWidget()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(232)
-        sl = vbox(sidebar, (16, 20, 16, 16), 4)
-        brand = hbox(spacing=10)
+        sidebar.setAttribute(Qt.WA_StyledBackground, True)
+        sidebar.setFixedWidth(240)
+        self.nav_pill = NavPill(sidebar)
+        sl = vbox(sidebar, (16, 22, 16, 16), 2)
+        brand = hbox(margins=(6, 0, 0, 0), spacing=12)
         logo = label()
-        logo.setPixmap(icons.app_icon_pixmap(72).scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo.setPixmap(icons.app_icon_pixmap(68).scaled(34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         brand.addWidget(logo)
         names = vbox(spacing=0)
         names.addWidget(label("Rangeo", "AppName"))
         names.addWidget(label(tr("app.tagline"), "AppTag"))
         brand.addLayout(names, 1)
         sl.addLayout(brand)
-        sl.addSpacing(18)
+        sl.addSpacing(16)
         group = QButtonGroup(self)
         group.setExclusive(True)
-        self.stack = QStackedWidget()
-        for name, icon_name, cls in PAGES:
+        self.stack = FadeStack()
+        icons_by_name = {name: icon_name for name, icon_name, _cls in PAGES}
+
+        def nav_button(name: str) -> QPushButton:
             btn = QPushButton(tr(f"nav.{name}"))
             btn.setObjectName("NavButton")
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setIcon(icons.icon(icon_name, theme.colors()["text2"], 18))
             btn.setIconSize(QSize(18, 18))
             btn.clicked.connect(lambda _=False, n=name: self.go(n))
             group.addButton(btn)
-            sl.addWidget(btn)
             self.nav[name] = btn
+            return btn
+
+        for group_key, names_ in NAV:
+            if group_key:
+                head = overline(tr(f"nav.group_{group_key}"))
+                head.setObjectName("NavGroup")
+                sl.addWidget(head)
+            for name in names_:
+                sl.addWidget(nav_button(name))
+        sl.addStretch(1)
+        busy = QWidget()
+        busy_lay = hbox(busy, (12, 8, 8, 8), 10)
+        self.busy_loader = SortLoader(18)
+        busy_lay.addWidget(self.busy_loader, 0, Qt.AlignVCenter)
+        self.busy_label = label("", "BusyLabel", wrap=True)
+        busy_lay.addWidget(self.busy_label, 1)
+        busy.hide()
+        self.busy_row = busy
+        sl.addWidget(busy)
+        sl.addWidget(nav_button("settings"))
+        sl.addSpacing(10)
+        sl.addWidget(label(tr("app.footer", version=__version__), "SidebarFooter", wrap=True))
+        for name, _icon_name, cls in PAGES:
             widget = cls(self.ctx)
             self.pages[name] = widget
             self.stack.addWidget(widget)
-            if name == "watch":
-                sl.addSpacing(6)
-        sl.addStretch(1)
-        self.busy_label = label("", "Faint", wrap=True)
-        self.busy_label.setStyleSheet(f"color: {theme.colors()['accent']};")
-        sl.addWidget(self.busy_label)
-        sl.addWidget(label(tr("app.footer", version=__version__), "SidebarFooter", wrap=True))
+        self._nav_icons = icons_by_name
         lay.addWidget(sidebar)
         lay.addWidget(self.stack, 1)
         self.setCentralWidget(root)
         self.go(page)
+
+    def _paint_nav(self, current: str) -> None:
+        c = theme.colors()
+        for name, btn in self.nav.items():
+            btn.setIcon(icons.icon(self._nav_icons[name], c["accent"] if name == current else c["text2"], 18))
 
     def go(self, name: str, payload=None) -> None:
         page = self.pages.get(name)
         if page is None:
             return
         self.nav[name].setChecked(True)
+        self._paint_nav(name)
+        self.nav_pill.follow(self.nav[name])
         self.stack.setCurrentWidget(page)
         if hasattr(page, "receive") and payload is not None:
             page.receive(payload)
@@ -305,7 +339,8 @@ class MainWindow(QMainWindow):
             self.notify("Rangeo", text)
 
     def _busy_changed(self, busy: bool) -> None:
-        self.busy_label.setText(("⏳ " + self.ctx.busy_label) if busy else "")
+        self.busy_label.setText(self.ctx.busy_label if busy else "")
+        self.busy_row.setVisible(bool(busy))
         self.tray.setToolTip("Rangeo — " + self.ctx.busy_label if busy else "Rangeo")
 
     # -- fermeture --------------------------------------------------------------

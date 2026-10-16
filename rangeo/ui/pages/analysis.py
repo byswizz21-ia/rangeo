@@ -11,8 +11,6 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QSpinBox,
     QSplitter,
-    QStackedWidget,
-    QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QWidget,
@@ -26,6 +24,7 @@ from .. import icons, theme
 from ..context import AppContext
 from ..i18n import fmt_date, fmt_int, fmt_size, plural, tr
 from ..treemap import GROUP_COLORS, Treemap
+from ..motion import FadeStack, TabWidget
 from ..widgets import (
     Banner,
     Card,
@@ -227,7 +226,7 @@ class AnalysisPage(QWidget):
         bar.addWidget(self.go)
         outer.addLayout(bar)
 
-        self.stack = QStackedWidget()
+        self.stack = FadeStack()
         outer.addWidget(self.stack, 1)
         empty = ScrollPage(max_width=900)
         empty.body.addWidget(Banner("info", tr("analysis.intro")))
@@ -245,11 +244,11 @@ class AnalysisPage(QWidget):
         stats = hbox(spacing=12)
         self.s_size = StatCard("layers", "0", tr("analysis.stat_size"))
         self.s_files = StatCard("file", "0", tr("analysis.stat_files"))
-        self.s_clean = StatCard("sparkles", "0", tr("analysis.stat_clean"), theme.colors()["success"])
+        self.s_clean = StatCard("sparkles", "0", tr("analysis.stat_clean"), tone="spark")
         for w in (self.s_size, self.s_files, self.s_clean):
             stats.addWidget(w)
         rl.addLayout(stats)
-        self.tabs = QTabWidget()
+        self.tabs = TabWidget()
         rl.addWidget(self.tabs, 1)
         self.stack.addWidget(res)
 
@@ -439,10 +438,10 @@ class AnalysisPage(QWidget):
         r = self.report
         rows = sorted(r.by_group.items(), key=lambda kv: -kv[1][1])
         self.cat_chart.set_rows([(tr(f"group.{g}"), size, f"{fmt_size(size)} · {fmt_int(n)}",
-                                  GROUP_COLORS.get(g, "#A5ABB8")) for g, (n, size) in rows if size or n])
+                                  GROUP_COLORS.get(g, "#68737A")) for g, (n, size) in rows if size or n])
         self.ext_chart.set_rows([(f".{e}" if e != "—" else tr("analysis.no_ext"), size,
                                   f"{fmt_size(size)} · {fmt_int(n)}",
-                                  GROUP_COLORS.get(ft.group_of(ft.kind_from_ext(e)), "#A5ABB8"))
+                                  GROUP_COLORS.get(ft.group_of(ft.kind_from_ext(e)), "#68737A"))
                                  for e, (n, size) in list(r.by_ext.items())[:15]])
         months = self.ctx.engine.journal.monthly(12)
         accent = theme.colors()["accent"]

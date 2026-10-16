@@ -4,40 +4,95 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QStorageInfo, Qt, Signal
-from PySide6.QtWidgets import QFrame, QGridLayout, QProgressBar, QWidget
+from PySide6.QtCore import QStorageInfo, Qt, QTime, Signal
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QFrame, QGraphicsDropShadowEffect, QGridLayout, QProgressBar, QWidget
 
 from ...core.protect import Protection
-from .. import icons, theme
+from .. import motion, theme
 from ..context import AppContext
 from ..i18n import fmt_date, fmt_int, fmt_size, tr
-from ..widgets import Card, Chip, DropZone, ScrollPage, StatCard, button, hbox, label, vbox
+from ..widgets import Card, Chip, DropZone, ScrollPage, StatCard, button, hbox, icon_label, label, vbox
 from .history import SESSION_ICONS, STATUS_LEVEL
 
 
 class ActionCard(QFrame):
+    """Carte cliquable de l'accueil : au survol elle se soulève et sa flèche avance."""
+
     clicked = Signal()
 
     def __init__(self, icon_name: str, title: str, text: str):
         super().__init__()
-        self.setObjectName("Card")
+        self.setObjectName("ActionCard")
         self.setCursor(Qt.PointingHandCursor)
-        lay = vbox(self, (18, 16, 18, 16), 6)
+        self.setFocusPolicy(Qt.TabFocus)
+        lay = vbox(self, (20, 18, 20, 20), 6)
         c = theme.colors()
-        bubble = label()
-        bubble.setFixedSize(38, 38)
-        bubble.setAlignment(Qt.AlignCenter)
-        bubble.setStyleSheet(f"background: {c['accent_soft']}; border-radius: 11px;")
-        bubble.setPixmap(icons.pixmap(icon_name, c["accent"], 20))
-        lay.addWidget(bubble)
-        lay.addSpacing(4)
+        top = hbox(spacing=8)
+        top.addWidget(icon_label(icon_name, c["accent"], 24))
+        top.addStretch(1)
+        self.arrow = motion.AnimIcon("arrow_right", c["text2"], 18, dx=4, hover_color=c["accent"])
+        top.addWidget(self.arrow, 0, Qt.AlignVCenter)
+        lay.addLayout(top)
+        lay.addSpacing(6)
         lay.addWidget(label(title, "SectionTitle"))
         lay.addWidget(label(text, "Muted", wrap=True))
         lay.addStretch(1)
+        self._lift = 0.0
+        self._anim = None
+        self._shadow = QGraphicsDropShadowEffect(self)
+        self._shadow.setColor(QColor(0, 0, 0, 0))
+        self._shadow.setOffset(0, 0)
+        self._shadow.setBlurRadius(0)
+        self._shadow.setEnabled(False)
+        self.setGraphicsEffect(self._shadow)
+
+    def _hover(self, on: bool) -> None:
+        self.arrow.set_active(on)
+        if not motion.enabled():
+            return
+        if self._anim is not None:
+            self._anim.stop()
+        self._shadow.setEnabled(True)
+        base = QColor(theme.colors()["shadow"])
+
+        def step(v):
+            self._lift = float(v)
+            base.setAlphaF((0.45 if theme.is_dark() else 0.12) * self._lift)
+            self._shadow.setColor(base)
+            self._shadow.setBlurRadius(28 * self._lift)
+            self._shadow.setOffset(0, 8 * self._lift)
+
+        def done():
+            if self._lift <= 0.001:
+                self._shadow.setEnabled(False)
+
+        self._anim = motion.animation(self, motion.FAST, step, start=self._lift, end=1.0 if on else 0.0,
+                                      on_done=done)
+        self._anim.start()
+
+    def enterEvent(self, event) -> None:
+        super().enterEvent(event)
+        self._hover(True)
+
+    def leaveEvent(self, event) -> None:
+        super().leaveEvent(event)
+        self._hover(False)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            self.clicked.emit()
+        else:
+            super().keyPressEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
             self.clicked.emit()
+
+
+def greeting() -> str:
+    hour = QTime.currentTime().hour()
+    return tr("home.title_evening") if hour >= 18 or hour < 4 else tr("home.title")
 
 
 class HomePage(ScrollPage):
@@ -45,9 +100,14 @@ class HomePage(ScrollPage):
         super().__init__()
         self.ctx = ctx
         b = self.body
-        hello = label(tr("home.title"), "PageTitle")
-        b.addWidget(hello)
-        b.addWidget(label(tr("home.subtitle"), "PageSubtitle", wrap=True))
+        b.setSpacing(18)
+        b.addSpacing(6)
+        texts = vbox(spacing=4)
+        self.hello = label(greeting(), "Display")
+        texts.addWidget(self.hello)
+        texts.addWidget(label(tr("home.subtitle"), "PageSubtitle", wrap=True))
+        b.addLayout(texts)
+        b.addSpacing(4)
 
         from ...core import winintegration as wi
 
@@ -81,7 +141,7 @@ class HomePage(ScrollPage):
         self.stat_files = StatCard("check_circle", "0", tr("home.stat_files"))
         self.stat_bytes = StatCard("layers", "0", tr("home.stat_bytes"))
         self.stat_sessions = StatCard("history", "0", tr("home.stat_sessions"))
-        self.stat_freed = StatCard("sparkles", "0", tr("home.stat_freed"))
+        self.stat_freed = StatCard("sparkles", "0", tr("home.stat_freed"), tone="spark")
         for i, w in enumerate((self.stat_files, self.stat_bytes, self.stat_sessions, self.stat_freed)):
             stats.addWidget(w, 0, i)
         b.addLayout(stats)
@@ -102,7 +162,7 @@ class HomePage(ScrollPage):
 
         safety = Card(flat=True, margins=(16, 12, 16, 12))
         srow = hbox(spacing=10)
-        srow.addWidget(_icon("shield", theme.colors()["success"]))
+        srow.addWidget(_icon("shield", theme.colors()["success"]), 0, Qt.AlignTop)
         srow.addWidget(label(tr("home.safety"), "Muted", wrap=True), 1)
         safety.add(srow)
         b.addWidget(safety)
@@ -171,8 +231,7 @@ class HomePage(ScrollPage):
             bar.setFixedHeight(6)
             bar.setRange(0, 1000)
             bar.setValue(int(frac * 1000))
-            if frac > 0.9:
-                bar.setStyleSheet(f"QProgressBar::chunk {{ background: {c['danger']}; border-radius: 3px; }}")
+            bar.setProperty("high", frac > 0.9)
             texts.addWidget(bar)
             lay.addLayout(texts, 1)
             problem = prot.source_problem(root)

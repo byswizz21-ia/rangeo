@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QSpinBox,
     QSplitter,
-    QStackedWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QWidget,
@@ -23,6 +22,7 @@ from ...core.models import Cancelled, TaskControl
 from .. import icons, theme
 from ..context import AppContext
 from ..i18n import fmt_date, fmt_int, fmt_size, plural, tr
+from ..motion import FadeStack
 from ..widgets import (
     Banner,
     Card,
@@ -35,6 +35,7 @@ from ..widgets import (
     confirm,
     error,
     hbox,
+    icon_label,
     label,
     open_in_explorer,
     vbox,
@@ -57,7 +58,7 @@ class DuplicatesPage(QWidget):
         self.control: TaskControl | None = None
         self.plan = None
         lay = vbox(self)
-        self.stack = QStackedWidget()
+        self.stack = FadeStack()
         lay.addWidget(self.stack)
 
         # --- configuration ---
@@ -105,7 +106,8 @@ class DuplicatesPage(QWidget):
         opts.add(label(tr("dups.keep_rule", rules=crit), "Muted", wrap=True))
         opts.add(button(tr("dups.change_rules"), "settings", "link", on_click=lambda: ctx.navigate.emit("settings", None)))
         setup.body.addWidget(opts)
-        go = hbox(spacing=12)
+        go = hbox(spacing=10)
+        go.addWidget(icon_label("lock", theme.colors()["success"], 18), 0, Qt.AlignVCenter)
         go.addWidget(label(tr("sort.nothing_changes"), "Muted", wrap=True), 1)
         go.addWidget(button(tr("dups.search"), "search", "primary", big=True, on_click=self.search))
         setup.body.addLayout(go)
@@ -137,7 +139,7 @@ class DuplicatesPage(QWidget):
         stats = hbox(spacing=12)
         self.s_groups = StatCard("copy", "0", tr("dups.stat_groups"))
         self.s_files = StatCard("file", "0", tr("dups.stat_files"))
-        self.s_space = StatCard("sparkles", "0", tr("dups.stat_space"), theme.colors()["success"])
+        self.s_space = StatCard("sparkles", "0", tr("dups.stat_space"), tone="spark")
         for w in (self.s_groups, self.s_files, self.s_space):
             stats.addWidget(w)
         rl.addLayout(stats)

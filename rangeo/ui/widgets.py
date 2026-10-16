@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
 
 from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QPainter
+from PySide6.QtGui import QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractButton,
     QFileDialog,
@@ -23,8 +24,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import icons, theme
+from . import icons, motion, theme
 from .i18n import fmt_duration, fmt_int, fmt_size, tr
+
+_TIGHT = {"Display": 97.5, "PageTitle": 98.5, "StatValue": 99.0, "BigNumber": 98.5, "AppName": 99.0}
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +51,10 @@ def label(text: str = "", name: str | None = None, wrap: bool = False, selectabl
     lab = QLabel(text)
     if name:
         lab.setObjectName(name)
+        if name in _TIGHT:
+            font = lab.font()
+            font.setLetterSpacing(QFont.PercentageSpacing, _TIGHT[name])
+            lab.setFont(font)
     lab.setWordWrap(wrap)
     if selectable:
         lab.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -68,10 +75,10 @@ def button(text: str = "", icon_name: str | None = None, kind: str = "default", 
         btn.setObjectName("Link")
     if big:
         btn.setProperty("big", True)
-        btn.setStyleSheet("padding: 11px 22px; font-size: 11pt;")
+        btn.setStyleSheet("padding: 11px 24px; font-size: 11pt;")
     if icon_name:
         c = theme.colors()
-        color = {"primary": "#FFFFFF", "danger": c["danger"], "link": c["accent"]}.get(kind, c["text2"])
+        color = {"primary": c["accent_text"], "danger": c["danger"], "link": c["accent"]}.get(kind, c["text2"])
         btn.setIcon(icons.icon(icon_name, color, 18))
         btn.setIconSize(QSize(17, 17))
     if tooltip:
@@ -79,6 +86,15 @@ def button(text: str = "", icon_name: str | None = None, kind: str = "default", 
     if on_click:
         btn.clicked.connect(on_click)
     return btn
+
+
+def overline(text: str) -> QLabel:
+    """Petit intitulé en capitales (groupes de la navigation, rubriques)."""
+    lab = label(text.upper(), "Overline")
+    font = lab.font()
+    font.setLetterSpacing(QFont.PercentageSpacing, 108)
+    lab.setFont(font)
+    return lab
 
 
 def separator() -> QFrame:
@@ -166,12 +182,12 @@ def choose_folder(parent, title: str, start: str = "") -> str | None:
 # ---------------------------------------------------------------------------
 class Card(QFrame):
     def __init__(self, title: str | None = None, subtitle: str | None = None, icon_name: str | None = None,
-                 flat: bool = False, margins=(18, 16, 18, 16), spacing: int = 10):
+                 flat: bool = False, margins=(20, 18, 20, 20), spacing: int = 12):
         super().__init__()
         self.setObjectName("CardFlat" if flat else "Card")
         self.body = vbox(self, margins, spacing)
         if title:
-            head = hbox(spacing=10)
+            head = hbox(spacing=12)
             if icon_name:
                 head.addWidget(icon_label(icon_name, theme.colors()["accent"], 20))
             texts = vbox(spacing=2)
@@ -214,7 +230,7 @@ class Banner(QFrame):
         c = theme.colors()
         color = {"info": c["accent"], "warning": c["warning"], "error": c["danger"], "success": c["success"]}[level]
         icon_name = {"info": "info", "warning": "alert", "error": "error", "success": "check_circle"}[level]
-        lay = hbox(self, (14, 10, 10, 10), 10)
+        lay = hbox(self, (16, 12, 12, 12), 12)
         lay.addWidget(icon_label(icon_name, color, 20), 0, Qt.AlignTop)
         self.text = label(text, wrap=True, selectable=True)
         self.text.setTextFormat(Qt.RichText)
@@ -233,26 +249,110 @@ class Banner(QFrame):
         self.text.setText(text)
 
 
+_NUMBER = re.compile(r"^(\D*?)(\d[\d\s  .,]*\d|\d)(\D*)$")
+
+
+def _split_number(text: str):
+    """« 64,4 Go » -> ("", 64.4, 1, ",", "", " Go") ; None si le texte n'est pas un simple nombre."""
+    m = _NUMBER.match(text or "")
+    if not m:
+        return None
+    prefix, num, suffix = m.groups()
+    dec_sep, decimals, thousands = ",", 0, ""
+    last = max(num.rfind(","), num.rfind("."))
+    if last >= 0 and (("," in num and "." in num) or (len(num) - last - 1 in (1, 2) and num.count(num[last]) == 1)):
+        dec_sep, decimals = num[last], len(num) - last - 1
+        int_part, frac = num[:last], num[last + 1:]
+    else:
+        int_part, frac = num, ""
+    seps = [ch for ch in int_part if not ch.isdigit()]
+    thousands = seps[0] if seps else ""
+    digits = "".join(ch for ch in int_part if ch.isdigit())
+    try:
+        value = float(digits + ("." + frac if frac else ""))
+    except ValueError:
+        return None
+    return prefix, value, decimals, dec_sep, thousands, suffix
+
+
+def _format_number(value: float, decimals: int, dec_sep: str, thousands: str) -> str:
+    whole, _, frac = f"{value:.{decimals}f}".partition(".")
+    if thousands:
+        whole = f"{int(whole):,}".replace(",", thousands)
+    return whole + (dec_sep + frac if decimals else "")
+
+
 class StatCard(QFrame):
-    def __init__(self, icon_name: str, value: str, caption: str, color: str | None = None):
+    """Chiffre clé : icône et légende en haut, valeur dessous, qui se compte jusqu'à sa valeur."""
+
+    def __init__(self, icon_name: str, value: str, caption: str, color: str | None = None, tone: str = "default"):
         super().__init__()
-        self.setObjectName("Card")
-        lay = hbox(self, (16, 14, 16, 14), 12)
+        self.setObjectName("StatSpark" if tone == "spark" else "StatCard")
         c = theme.colors()
-        bubble = QLabel()
-        bubble.setFixedSize(40, 40)
-        bubble.setAlignment(Qt.AlignCenter)
-        bubble.setStyleSheet(f"background: {c['accent_soft']}; border-radius: 12px;")
-        bubble.setPixmap(icons.pixmap(icon_name, color or c["accent"], 20))
-        lay.addWidget(bubble)
-        texts = vbox(spacing=0)
-        self.value = label(value, "StatValue")
-        texts.addWidget(self.value)
-        texts.addWidget(label(caption, "StatLabel"))
-        lay.addLayout(texts, 1)
+        lay = vbox(self, (18, 14, 18, 16), 6)
+        top = hbox(spacing=8)
+        icon_color = c["spark_text"] if tone == "spark" else (color or c["accent"])
+        top.addWidget(icon_label(icon_name, icon_color, 18), 0, Qt.AlignVCenter)
+        cap = label(caption, "StatLabel")
+        cap.setMinimumWidth(10)
+        top.addWidget(cap, 1)
+        lay.addLayout(top)
+        self.value = label("", "StatValue")
+        lay.addWidget(self.value)
+        self._text = ""
+        self._shown = False
+        self._anim = None
+        self._current = 0.0
+        self.set_value(value)
 
     def set_value(self, text: str) -> None:
-        self.value.setText(text)
+        old = self._text
+        self._text = text
+        parts = _split_number(text)
+        if parts is None or not motion.enabled() or any(ch.isdigit() for ch in parts[5]):
+            self._stop()
+            self.value.setText(text)
+            if parts is not None:
+                self._current = parts[1]
+            return
+        if not self._shown:
+            self.value.setText(text)
+            return
+        if text != old:
+            self._count(self._current if old else 0.0, parts)
+
+    def _stop(self) -> None:
+        if self._anim is not None:
+            self._anim.stop()
+            self._anim = None
+
+    def _count(self, start: float, parts) -> None:
+        prefix, target, decimals, dec_sep, thousands, suffix = parts
+        self._stop()
+        if abs(target - start) < 10 ** -decimals:
+            self.value.setText(self._text)
+            self._current = target
+            return
+
+        def step(v):
+            self._current = float(v)
+            self.value.setText(prefix + _format_number(self._current, decimals, dec_sep, thousands) + suffix)
+
+        def done():
+            self._current = target
+            self.value.setText(self._text)
+
+        self._anim = motion.animation(self, motion.SETTLE, step, start=float(start), end=float(target), on_done=done)
+        step(start)
+        self._anim.start()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if not self._shown:
+            self._shown = True
+            parts = _split_number(self._text)
+            if parts is not None and motion.enabled() and not any(ch.isdigit() for ch in parts[5]):
+                self._count(0.0, parts)
 
 
 class PageHeader(QWidget):
@@ -278,7 +378,7 @@ class ScrollPage(QScrollArea):
         self.setFrameShape(QFrame.NoFrame)
         outer = QWidget()
         outer.setObjectName("Page")
-        outer_lay = hbox(outer, (32, 26, 32, 28), 0)
+        outer_lay = hbox(outer, (32, 28, 32, 32), 0)
         self.content = QWidget()
         if max_width:
             self.content.setMaximumWidth(max_width)
@@ -296,15 +396,18 @@ class Toggle(QAbstractButton):
         self.setCheckable(True)
         self.setChecked(checked)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedSize(42, 24)
+        self.setFixedSize(40, 24)
         self._pos = 1.0 if checked else 0.0
         self._anim = QPropertyAnimation(self, b"knob", self)
-        self._anim.setDuration(140)
+        self._anim.setDuration(motion.FAST)
         self._anim.setEasingCurve(QEasingCurve.OutCubic)
         self.toggled.connect(self._animate)
 
     def _animate(self, on: bool) -> None:
         self._anim.stop()
+        if not motion.enabled():
+            self.set_knob(1.0 if on else 0.0)
+            return
         self._anim.setStartValue(self._pos)
         self._anim.setEndValue(1.0 if on else 0.0)
         self._anim.start()
@@ -319,25 +422,21 @@ class Toggle(QAbstractButton):
     knob = Property(float, get_knob, set_knob)
 
     def sizeHint(self) -> QSize:
-        return QSize(42, 24)
+        return QSize(40, 24)
 
     def paintEvent(self, _event) -> None:
         c = theme.colors()
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        off, on = QColor(c["border_strong"]), QColor(c["accent"])
-        track = QColor(
-            int(off.red() + (on.red() - off.red()) * self._pos),
-            int(off.green() + (on.green() - off.green()) * self._pos),
-            int(off.blue() + (on.blue() - off.blue()) * self._pos),
-        )
+        track = motion.mix(c["border_strong"], c["accent"], self._pos)
+        knob = motion.mix(c["surface"], c["accent_text"], self._pos)
         if not self.isEnabled():
-            track.setAlpha(110)
+            p.setOpacity(0.45)
         p.setPen(Qt.NoPen)
         p.setBrush(track)
-        p.drawRoundedRect(QRectF(0, 0, 42, 24), 12, 12)
-        p.setBrush(QColor("#FFFFFF"))
-        x = 3 + self._pos * 18
+        p.drawRoundedRect(QRectF(0, 0, 40, 24), 12, 12)
+        p.setBrush(knob)
+        x = 3 + self._pos * 16
         p.drawEllipse(QRectF(x, 3, 18, 18))
         p.end()
 
@@ -353,26 +452,81 @@ class DropZone(QFrame):
         super().__init__()
         self.setObjectName("DropZone")
         self.setAcceptDrops(True)
-        self.setMinimumHeight(170)
-        lay = vbox(self, (24, 24, 24, 24), 8)
+        self.setMinimumHeight(220)
+        self._level = 0.0      # 0 = repos, 0,35 = survol souris, 1 = dossier au-dessus
+        self._dash = 0.0
+        self._level_anim = None
+        self._march = motion.animation(self, 700, self._set_dash, QEasingCurve(QEasingCurve.Linear), 0.0, 8.0)
+        self._march.setLoopCount(-1)
+        lay = vbox(self, (28, 36, 28, 36), 8)
         lay.addStretch(1)
-        ic = icon_label("folder_open", theme.colors()["accent"], 38)
-        lay.addWidget(ic, 0, Qt.AlignHCenter)
+        c = theme.colors()
+        self.icon = motion.AnimIcon("folder_open", c["accent"], 40, dy=-4, stroke=1.75,
+                                    curve=motion.settle_curve(1.3), duration=motion.STANDARD)
+        lay.addWidget(self.icon, 0, Qt.AlignHCenter)
+        lay.addSpacing(4)
         t = label(title, "SectionTitle")
         t.setAlignment(Qt.AlignCenter)
         lay.addWidget(t)
         s = label(subtitle, "Muted", wrap=True)
         s.setAlignment(Qt.AlignCenter)
         lay.addWidget(s)
+        lay.addSpacing(8)
         btn = button(button_text, "folder", "primary")
         btn.clicked.connect(self.browseClicked.emit)
         lay.addWidget(btn, 0, Qt.AlignHCenter)
         lay.addStretch(1)
 
+    def _set_dash(self, v) -> None:
+        self._dash = float(v)
+        self.update()
+
+    def _to_level(self, target: float) -> None:
+        if self._level_anim is not None:
+            self._level_anim.stop()
+        if target >= 1.0 and motion.enabled():
+            self._march.start()
+        else:
+            self._march.stop()
+            self._dash = 0.0
+        if not motion.enabled():
+            self._level = target
+            self.update()
+            return
+
+        def step(v):
+            self._level = float(v)
+            self.update()
+
+        self._level_anim = motion.animation(self, motion.STANDARD, step, start=self._level, end=target)
+        self._level_anim.start()
+
+    def paintEvent(self, _event) -> None:
+        c = theme.colors()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        p.setBrush(motion.mix(c["surface"], c["accent_soft"], self._level))
+        pen = QPen(motion.mix(c["border_strong"], c["accent"], min(1.0, self._level * 1.6)), 1.5)
+        pen.setDashPattern([4, 4])
+        pen.setDashOffset(-self._dash)
+        p.setPen(pen)
+        p.drawRoundedRect(rect, 22, 22)
+        p.end()
+
+    def enterEvent(self, event) -> None:
+        super().enterEvent(event)
+        if self._level < 1.0:
+            self._to_level(0.35)
+
+    def leaveEvent(self, event) -> None:
+        super().leaveEvent(event)
+        if self._level < 1.0:
+            self._to_level(0.0)
+
     def _set_hover(self, on: bool) -> None:
-        self.setProperty("hover", on)
-        self.style().unpolish(self)
-        self.style().polish(self)
+        self.icon.set_active(on)
+        self._to_level(1.0 if on else 0.0)
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls():
@@ -480,9 +634,14 @@ class ProgressPanel(Card):
     STAGES = ("scan", "analyze", "plan", "execute", "undo", "dup_partial", "dup_full")
 
     def __init__(self):
-        super().__init__(margins=(22, 20, 22, 20), spacing=10)
+        super().__init__(margins=(24, 22, 24, 20), spacing=12)
         self.control = None
-        top = hbox(spacing=10)
+        top = hbox(spacing=12)
+        self.loader = motion.SortLoader(26)
+        top.addWidget(self.loader, 0, Qt.AlignVCenter)
+        self.pause_icon = icon_label("pause", theme.colors()["text2"], 24)
+        self.pause_icon.hide()
+        top.addWidget(self.pause_icon, 0, Qt.AlignVCenter)
         self.stage = label("", "SectionTitle")
         top.addWidget(self.stage, 1)
         self.percent = label("", "StatValue")
@@ -490,7 +649,10 @@ class ProgressPanel(Card):
         self.add(top)
         self.bar = QProgressBar()
         self.bar.setTextVisible(False)
-        self.bar.setFixedHeight(10)
+        self.bar.setFixedHeight(8)
+        self._bar_anim = QPropertyAnimation(self.bar, b"value", self)
+        self._bar_anim.setDuration(420)
+        self._bar_anim.setEasingCurve(QEasingCurve.OutCubic)
         self.add(self.bar)
         stats = hbox(spacing=24)
         self.counts = label("", "Muted")
@@ -519,6 +681,9 @@ class ProgressPanel(Card):
     def attach(self, control, allow_pause: bool = True) -> None:
         self.control = control
         self._history = []
+        self._bar_anim.stop()
+        self.bar.setRange(0, 1000)
+        self.bar.setValue(0)
         self.pause_btn.setVisible(allow_pause)
         self.pause_btn.setText(tr("progress.pause"))
         self.pause_btn.setIcon(icons.icon("pause"))
@@ -559,6 +724,8 @@ class ProgressPanel(Card):
         if snap["paused"]:
             title += " — " + tr("progress.paused")
         self.stage.setText(title)
+        self.loader.setVisible(not snap["paused"])
+        self.pause_icon.setVisible(bool(snap["paused"]))
         done, total = snap["done"], snap["total"]
         bdone, btotal = snap["bytes_done"], snap["bytes_total"]
         if btotal > 0 and stage in ("execute", "dup_full"):
@@ -569,11 +736,21 @@ class ProgressPanel(Card):
         else:
             frac = -1
         if frac < 0:
+            self._bar_anim.stop()
             self.bar.setRange(0, 0)
             self.percent.setText("")
         else:
             self.bar.setRange(0, 1000)
-            self.bar.setValue(int(frac * 1000))
+            target = int(frac * 1000)
+            if target > self.bar.value() and motion.enabled():
+                if self._bar_anim.endValue() != target:
+                    self._bar_anim.stop()
+                    self._bar_anim.setStartValue(max(0, self.bar.value()))
+                    self._bar_anim.setEndValue(target)
+                    self._bar_anim.start()
+            else:
+                self._bar_anim.stop()
+                self.bar.setValue(target)
             self.percent.setText(f"{int(frac * 100)} %")
         elapsed = max(0.001, snap["elapsed"])
         if total:

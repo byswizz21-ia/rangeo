@@ -17,9 +17,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QRadioButton,
     QSplitter,
-    QStackedWidget,
     QTableView,
-    QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QWidget,
@@ -34,6 +32,7 @@ from .. import icons, theme
 from ..context import AppContext
 from ..i18n import fmt_date, fmt_duration, fmt_int, fmt_size, kind_label, plural, tr
 from ..plan_model import OpsModel, PROBLEM_NOTES, relative_target
+from ..motion import FadeStack, TabWidget
 from ..widgets import (
     Banner,
     Card,
@@ -47,6 +46,7 @@ from ..widgets import (
     confirm,
     error,
     hbox,
+    icon_label,
     label,
     open_in_explorer,
     vbox,
@@ -138,7 +138,8 @@ class SetupStep(ScrollPage):
         self.profile.currentIndexChanged.connect(self._profile_changed)
         b.addWidget(how)
 
-        go = hbox(spacing=12)
+        go = hbox(spacing=10)
+        go.addWidget(icon_label("lock", theme.colors()["success"], 18), 0, Qt.AlignVCenter)
         go.addWidget(label(tr("sort.nothing_changes"), "Muted", wrap=True), 1)
         self.analyze_btn = button(tr("sort.analyze"), "search", "primary", big=True, on_click=on_analyze)
         go.addWidget(self.analyze_btn)
@@ -236,7 +237,7 @@ class PreviewStep(QWidget):
             stats.addWidget(w)
         outer.addLayout(stats)
 
-        self.tabs = QTabWidget()
+        self.tabs = TabWidget()
         outer.addWidget(self.tabs, 1)
 
         # --- onglet 1 : fichiers à ranger ---
@@ -719,8 +720,11 @@ class ResultStep(ScrollPage):
         actions.addStretch(1)
         actions.addWidget(button(tr("result.new"), "plus", "primary", on_click=self.on_new))
         b.addLayout(actions)
-        tip = Card(flat=True, margins=(14, 10, 14, 10))
-        tip.add(label(tr("result.undo_tip"), "Muted", wrap=True))
+        tip = Card(flat=True, margins=(16, 12, 16, 12))
+        tip_row = hbox(spacing=10)
+        tip_row.addWidget(icon_label("undo", theme.colors()["accent"], 18), 0, Qt.AlignTop)
+        tip_row.addWidget(label(tr("result.undo_tip"), "Muted", wrap=True), 1)
+        tip.add(tip_row)
         b.addWidget(tip)
         b.addStretch(1)
 
@@ -764,7 +768,7 @@ class SortPage(QWidget):
         self.scan = None
         self.req = None
         lay = vbox(self)
-        self.stack = QStackedWidget()
+        self.stack = FadeStack()
         lay.addWidget(self.stack)
         self.setup = SetupStep(ctx, self.analyze)
         self.progress_page = ScrollPage(max_width=820)

@@ -9,11 +9,8 @@ from PySide6.QtWidgets import QMenu, QToolTip, QWidget
 from . import theme
 from .i18n import fmt_size, tr
 
-GROUP_COLORS = {
-    "image": "#4F8DF5", "video": "#E5484D", "audio": "#8E4EC6", "document": "#F2A33A", "archive": "#12A594",
-    "software": "#6E56CF", "game": "#E54666", "code": "#0091FF", "font": "#AD7F58", "model3d": "#3E63DD",
-    "shortcut": "#8B8D98", "technical": "#7C8496", "unknown": "#A5ABB8", "bundle": "#5B6475",
-}
+GROUP_COLORS = theme.CATEGORY  # couleurs de catégories du design system (étiquettes blanches lisibles)
+OTHER_COLOR = "#68737A"
 
 
 def squarify(values: list[float], x: float, y: float, w: float, h: float) -> list[QRectF]:
@@ -73,6 +70,7 @@ class Treemap(QWidget):
         self.setMinimumHeight(320)
         self.node = None
         self.items: list[tuple[QRectF, object, str, int, str]] = []  # (rect, noeud|None, nom, taille, groupe)
+        self._hover = None
 
     def set_node(self, node) -> None:
         self.node = node
@@ -121,29 +119,44 @@ class Treemap(QWidget):
         font = QFont(self.font())
         font.setPointSizeF(9)
         p.setFont(font)
+        bold = QFont(font)
+        bold.setWeight(QFont.DemiBold)
         for rect, child, name, size, group in self.items:
-            r = rect.adjusted(1.5, 1.5, -1.5, -1.5)
+            r = rect.adjusted(2, 2, -2, -2)
             if r.width() <= 0 or r.height() <= 0:
                 continue
-            color = QColor(GROUP_COLORS.get(group, "#A5ABB8"))
+            color = QColor(GROUP_COLORS.get(group, OTHER_COLOR))
             if child is None:
-                color = color.lighter(125)
+                color = color.darker(112)
+            if self._hover is not None and self._hover[0] == rect:
+                color = color.lighter(112)
             p.setPen(Qt.NoPen)
             p.setBrush(color)
-            p.drawRoundedRect(r, 5, 5)
+            p.drawRoundedRect(r, 8, 8)
             if r.width() > 70 and r.height() > 34:
+                p.setFont(bold)
                 p.setPen(QPen(QColor("#FFFFFF")))
                 text_rect = r.adjusted(7, 5, -7, -5)
                 metrics = p.fontMetrics()
                 p.drawText(text_rect, Qt.AlignLeft | Qt.AlignTop,
                            metrics.elidedText(name, Qt.ElideRight, int(text_rect.width())))
                 if r.height() > 48:
+                    p.setFont(font)
                     p.drawText(text_rect.adjusted(0, metrics.height() + 1, 0, 0), Qt.AlignLeft | Qt.AlignTop,
                                fmt_size(size))
         p.end()
 
+    def leaveEvent(self, event) -> None:
+        super().leaveEvent(event)
+        if self._hover is not None:
+            self._hover = None
+            self.update()
+
     def mouseMoveEvent(self, event) -> None:
         item = self._item_at(event.position())
+        if item is not self._hover:
+            self._hover = item
+            self.update()
         if item is None:
             QToolTip.hideText()
             self.setCursor(Qt.ArrowCursor)

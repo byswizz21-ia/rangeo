@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QStandardPaths, Qt
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QDialog, QStackedWidget, QWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QDialog, QWidget
 
 from . import icons, theme
 from .i18n import LANGUAGES, set_language, tr
+from .motion import FadeStack
 from .widgets import Card, button, hbox, icon_label, label, vbox
 
 
@@ -33,7 +34,7 @@ class FirstRunWizard(QDialog):
         top.addLayout(texts, 1)
         lay.addLayout(top)
 
-        self.pages = QStackedWidget()
+        self.pages = FadeStack()
         lay.addWidget(self.pages, 1)
 
         # page 1 : langue et thème

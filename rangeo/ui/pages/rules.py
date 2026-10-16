@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QSpinBox,
     QSplitter,
-    QTabWidget,
     QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -36,6 +35,7 @@ from ...core.models import FileEntry
 from .. import icons, theme
 from ..context import AppContext
 from ..i18n import fmt_date, kind_label, language, tr
+from ..motion import TabWidget
 from ..widgets import Banner, Card, ScrollPage, button, confirm, error, hbox, info, label, vbox
 
 ACTION_ICONS = {"move": "arrow_right", "copy": "copy", "ignore": "lock", "trash": "trash"}
@@ -453,7 +453,7 @@ class RulesPage(QWidget):
         head.addWidget(menu_btn, 0, Qt.AlignBottom)
         outer.addLayout(head)
 
-        self.tabs = QTabWidget()
+        self.tabs = TabWidget()
         outer.addWidget(self.tabs, 1)
 
         # --- règles ---
