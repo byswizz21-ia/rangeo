@@ -153,12 +153,13 @@ def compute_date(entry: FileEntry, order: list[str]) -> None:
         elif source == "filename":
             ts = md.date_from_name(entry.stem)
         elif source == "oldest":
-            candidates = [t for t in (entry.ctime, entry.mtime) if t and t > 0]
+            # dates de fichier aberrantes ignorées (1980 après une décompression, date dans le futur…)
+            candidates = [t for t in (entry.ctime, entry.mtime) if md._valid_ts(t)]
             ts = min(candidates) if candidates else None
         elif source == "created":
-            ts = entry.ctime or None
+            ts = md._valid_ts(entry.ctime or None)
         elif source == "modified":
-            ts = entry.mtime or None
+            ts = md._valid_ts(entry.mtime or None)
         if ts:
             entry.date = ts
             entry.date_source = source

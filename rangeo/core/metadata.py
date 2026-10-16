@@ -441,8 +441,16 @@ def is_screen_size(width: int | None, height: int | None) -> bool:
     return (width, height) in SCREEN_SIZES or (height, width) in SCREEN_SIZES
 
 
+# « Scan 15-07-2023 », « Facture 03.04.2021 » : jour-mois-année (séparateurs obligatoires)
+_DMY_RE = re.compile(
+    r"(?<![\d.vV])(0?[1-9]|[12]\d|3[01])([-_.])(0?[1-9]|1[0-2]|1[3-9]|2\d|3[01])\2(19[89]\d|20\d{2})(?![\d.])"
+)
+# Messenger / Facebook : « received_1689412345678 », « FB_IMG_1689412345678 » (millisecondes)
+_MS_STAMP_RE = re.compile(r"(?:^|[_\-\s])(?:fb_img|received)_(1[2-9]\d{11})(?!\d)", re.I)
+
+
 def date_from_name(stem: str) -> float | None:
-    """Date contenue dans le nom (IMG_20240312_143200, Screenshot 2024-03-12…)."""
+    """Date contenue dans le nom (IMG_20240312_143200, Screenshot 2024-03-12, Scan 15-07-2023…)."""
     for m in _DATE_IN_NAME_RE.finditer(stem):
         y, mo, d, hh, mm, ss = m.groups()
         try:
@@ -452,6 +460,22 @@ def date_from_name(stem: str) -> float | None:
         ts = _valid_ts(dt.timestamp())
         if ts:
             return ts
+    for m in _DMY_RE.finditer(stem):
+        a, _sep, b, y = m.groups()
+        a, b = int(a), int(b)
+        # jour en premier (usage français) ; mois en premier seulement si l'ordre inverse est impossible
+        day, month = (b, a) if b > 12 else (a, b)
+        if month > 12:
+            continue
+        try:
+            ts = _valid_ts(_dt.datetime(int(y), month, day).timestamp())
+        except ValueError:
+            continue
+        if ts:
+            return ts
+    m = _MS_STAMP_RE.search(stem)
+    if m:
+        return _valid_ts(int(m.group(1)) / 1000)
     return None
 
 

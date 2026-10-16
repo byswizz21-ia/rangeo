@@ -236,3 +236,27 @@ def test_recycle_bin_restore_picks_the_right_version():
     # moment inconnu : la plus récente
     assert trash._pick(candidates, 0, None) == ("R_manuel", "I_manuel")
     assert trash._pick([], rangeo_time, 1) is None
+
+
+def test_more_dates_in_names():
+    """Formats de date français et horodatages d'applications ; dates de fichier aberrantes ignorées."""
+    import datetime as dt
+
+    from rangeo.core.classify import compute_date
+
+    def day(stem):
+        ts = md.date_from_name(stem)
+        return dt.datetime.fromtimestamp(ts).date() if ts else None
+
+    assert day("Scan 15-07-2023") == dt.date(2023, 7, 15)
+    assert day("Facture 03.04.2021") == dt.date(2021, 4, 3)  # jour en premier
+    assert day("Invoice 07-15-2023") == dt.date(2023, 7, 15)  # mois en premier : seul ordre possible
+    assert day("Releve 3-4-2021") == dt.date(2021, 4, 3)
+    assert day("received_1689412345678") == dt.datetime.fromtimestamp(1689412345.678).date()
+    assert day("FB_IMG_1689412345678") is not None
+    assert day("commande 1689412345678") is None  # simple numéro
+    assert day("logiciel v1.02.2019") is None  # numéro de version
+    assert day("32-01-2023") is None
+    e = FileEntry(dir="C:\\x", name="a.pdf", size=1, mtime=315532800.0, ctime=1_700_000_000.0)  # 1980
+    compute_date(e, ["oldest"])
+    assert e.date == 1_700_000_000.0
