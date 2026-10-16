@@ -103,6 +103,10 @@ def trash(path: str, session_id: int = 0, size: int | None = None) -> dict:
     if can_use_recycle_bin(path, size):
         from send2trash import send2trash
 
+        try:  # taille notée pour retrouver le bon élément dans la corbeille à l'annulation
+            file_size = os.stat(xp(path)).st_size if os.path.isfile(xp(path)) else None
+        except OSError:
+            file_size = None
         when = time.time()
         try:
             send2trash(xp(path) if len(path) >= 240 else path)
@@ -110,7 +114,10 @@ def trash(path: str, session_id: int = 0, size: int | None = None) -> dict:
             log.warning("Corbeille Windows impossible pour %s (%s) : mise en quarantaine", path, exc)
         else:
             if not os.path.lexists(xp(path)):
-                return {"method": "recycle", "time": when}
+                info = {"method": "recycle", "time": when}
+                if file_size is not None:
+                    info["size"] = file_size
+                return info
     target = quarantine_target(path, session_id)
     folder = os.path.dirname(target)
     os.makedirs(xp(folder), exist_ok=True)
@@ -155,8 +162,24 @@ def _read_info(path: str) -> tuple[str, float] | None:
         return None
 
 
-def find_in_recycle_bin(original: str, deleted_after: float) -> tuple[str, str] | None:
-    """Renvoie ($R, $I) du fichier supprimé le plus récemment à cet emplacement."""
+def _pick(candidates: list[tuple[float, str, str, int | None]], when: float,
+          size: int | None) -> tuple[str, str] | None:
+    """Parmi les éléments supprimés au même emplacement, celui que Rangeo a mis à la corbeille :
+    même taille, et supprimé au moment noté (pas une autre version supprimée plus tard à la main)."""
+    if size is not None:
+        same = [c for c in candidates if c[3] is None or c[3] == size]
+        candidates = same or candidates
+    if not candidates:
+        return None
+    if when > 0:
+        best = min(candidates, key=lambda c: abs(c[0] - when))
+    else:  # moment inconnu (coupure avant l'écriture du journal) : le plus récent
+        best = max(candidates, key=lambda c: c[0])
+    return best[1], best[2]
+
+
+def find_in_recycle_bin(original: str, deleted_after: float, size: int | None = None) -> tuple[str, str] | None:
+    """Renvoie ($R, $I) de l'élément supprimé à cet emplacement par Rangeo."""
     root = volume_root(original)
     bin_root = os.path.join(root, "$Recycle.Bin")
     sid = _current_sid()
@@ -166,7 +189,7 @@ def find_in_recycle_bin(original: str, deleted_after: float) -> tuple[str, str] 
             folders = [os.path.join(bin_root, d) for d in os.listdir(bin_root)]
         except OSError:
             return None
-    best = None
+    candidates: list[tuple[float, str, str, int | None]] = []
     for folder in folders:
         try:
             names = os.listdir(folder)
@@ -181,9 +204,13 @@ def find_in_recycle_bin(original: str, deleted_after: float) -> tuple[str, str] 
             orig, deleted = info
             if nkey(orig) == nkey(original) and deleted >= deleted_after - 120:
                 rpath = os.path.join(folder, "$R" + name[2:])
-                if os.path.lexists(rpath) and (best is None or deleted > best[0]):
-                    best = (deleted, rpath, os.path.join(folder, name))
-    return (best[1], best[2]) if best else None
+                if os.path.lexists(rpath):
+                    try:
+                        rsize = os.stat(rpath).st_size if os.path.isfile(rpath) else None
+                    except OSError:
+                        rsize = None
+                    candidates.append((deleted, rpath, os.path.join(folder, name), rsize))
+    return _pick(candidates, deleted_after, size)
 
 
 def restore(original: str, info: dict, target: str | None = None) -> str:
@@ -201,7 +228,7 @@ def restore(original: str, info: dict, target: str | None = None) -> str:
         return target
     found = None
     for _ in range(25):  # Windows écrit parfois l'entrée de la corbeille avec un léger délai
-        found = find_in_recycle_bin(original, float(info.get("time", 0)))
+        found = find_in_recycle_bin(original, float(info.get("time", 0)), info.get("size"))
         if found:
             break
         time.sleep(0.2)

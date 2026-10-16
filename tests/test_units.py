@@ -216,3 +216,23 @@ def test_metadata_accents_give_one_folder():
         e.meta = {"artist": unicodedata.normalize(form, "Beyoncé"), "album": unicodedata.normalize(form, "Lemonade")}
         folders.add(rules.render_target_dir(music["target"], e, root, "fr"))
     assert len(folders) == 1
+
+
+def test_recycle_bin_restore_picks_the_right_version():
+    """Même emplacement supprimé deux fois (par Rangeo, puis à la main plus tard) : l'annulation
+    reprend la version supprimée par Rangeo."""
+    from rangeo.core import trash
+
+    rangeo_time = 1_700_000_000.0
+    candidates = [
+        (rangeo_time + 0.4, "R_rangeo", "I_rangeo", 100),
+        (rangeo_time + 3600, "R_manuel", "I_manuel", 250),
+    ]
+    assert trash._pick(candidates, rangeo_time, 100) == ("R_rangeo", "I_rangeo")
+    assert trash._pick(candidates, rangeo_time, None) == ("R_rangeo", "I_rangeo")
+    # même taille, plus proche dans le temps
+    candidates.append((rangeo_time + 60, "R_autre", "I_autre", 100))
+    assert trash._pick(candidates, rangeo_time, 100) == ("R_rangeo", "I_rangeo")
+    # moment inconnu : la plus récente
+    assert trash._pick(candidates, 0, None) == ("R_manuel", "I_manuel")
+    assert trash._pick([], rangeo_time, 1) is None
