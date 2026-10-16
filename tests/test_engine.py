@@ -511,3 +511,25 @@ def test_online_only_file_is_not_moved_out_of_onedrive(engine, tmp_path, monkeyp
     op = next(o for o in plan.ops if o.src.endswith("rapport.pdf"))
     assert op.enabled, op.note
     assert fsutil.cloud_root_of(str(onedrive / "a" / "b.txt")) == fsutil.norm(str(onedrive))
+
+
+def test_duplicate_not_trashed_if_kept_file_vanished_or_changed(engine, tmp_path):
+    """Entre l'analyse des doublons et le clic, le fichier conservé est supprimé ou modifié :
+    la copie n'est pas mise à la corbeille."""
+    from rangeo.core import duplicates as dup_mod
+
+    folder = tmp_path / "photos"
+    folder.mkdir()
+    for name in ("a.jpg", "a (2).jpg", "b.jpg", "b (2).jpg"):
+        (folder / name).write_bytes((b"A" if name.startswith("a") else b"B") * 5000)
+    _scan, groups = engine.find_duplicates([str(folder)], TaskControl())
+    assert len(groups) == 2
+    plan = dup_mod.build_dup_plan(groups, "trash", None, "_Doublons")
+    keeps = {g.keep.name for g in groups}
+    assert keeps == {"a.jpg", "b.jpg"}
+    (folder / "a.jpg").unlink()  # conservé puis supprimé par l'utilisateur
+    (folder / "b.jpg").write_bytes(b"C" * 5000)  # conservé puis modifié
+    result = engine.execute(plan, TaskControl(), kind="duplicates")
+    assert result.failed == 2
+    assert {code for _p, code, _d in result.errors} == {"kept_missing", "not_identical"}
+    assert (folder / "a (2).jpg").exists() and (folder / "b (2).jpg").exists()

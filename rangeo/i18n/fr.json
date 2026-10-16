@@ -271,6 +271,7 @@
   "error.not_in_recycle_bin": "Introuvable dans la corbeille (déjà vidée ?)",
   "error.moved_file_missing": "Le fichier rangé n'existe plus",
   "error.source_leftovers": "Rangé, mais des fichiers ouverts dans un autre programme sont restés à l'ancien emplacement (copies identiques, à supprimer plus tard)",
+  "error.kept_missing": "Le fichier conservé n'existe plus : cette copie n'a pas été supprimée",
   "protect.system_folder": "Dossier système protégé : Rangeo refuse d'y toucher",
   "protect.system_drive": "Le disque système entier ne peut pas être rangé (choisissez plutôt vos dossiers personnels)",
   "protect.profile_root": "Le dossier utilisateur entier ne peut pas être rangé (choisissez Téléchargements, Bureau, Documents…)",

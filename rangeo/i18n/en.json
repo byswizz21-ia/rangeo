@@ -271,6 +271,7 @@
   "error.not_in_recycle_bin": "Not found in the Recycle Bin (already emptied?)",
   "error.moved_file_missing": "The sorted file no longer exists",
   "error.source_leftovers": "Sorted, but files open in another program were left at the old location (identical copies, delete them later)",
+  "error.kept_missing": "The kept file no longer exists: this copy was not removed",
   "protect.system_folder": "Protected system folder: Rangeo refuses to touch it",
   "protect.system_drive": "The whole system drive cannot be sorted (choose your personal folders instead)",
   "protect.profile_root": "The whole user folder cannot be sorted (choose Downloads, Desktop, Documents…)",

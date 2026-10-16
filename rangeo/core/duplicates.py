@@ -204,11 +204,12 @@ def build_dup_plan(groups: list[DupGroup], action: str, dup_root: str | None, fo
     for g in groups:
         if not g.enabled:
             continue
+        rule = "similar" if g.similar else "duplicate"
         for e in g.files:
             if e is g.keep:
                 continue
             if action == "trash":
-                op = PlannedOp(OP_TRASH, e.path, None, e.size, e, "duplicate", keep_ref=g.keep.path)
+                op = PlannedOp(OP_TRASH, e.path, None, e.size, e, rule, keep_ref=g.keep.path)
             elif action == "hardlink":
                 op = PlannedOp(OP_HARDLINK, e.path, g.keep.path, e.size, e, "duplicate", keep_ref=g.keep.path)
                 try:
@@ -234,7 +235,7 @@ def build_dup_plan(groups: list[DupGroup], action: str, dup_root: str | None, fo
                         pass
                 name = unique_name(e.name, names)
                 names.add(nkey(name))
-                op = PlannedOp(OP_MOVE, e.path, os.path.join(folder, name), e.size, e, "duplicate",
+                op = PlannedOp(OP_MOVE, e.path, os.path.join(folder, name), e.size, e, rule,
                                keep_ref=g.keep.path)
             plan.ops.append(op)
     for i, op in enumerate(plan.ops, 1):

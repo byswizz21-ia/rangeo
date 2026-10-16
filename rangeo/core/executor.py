@@ -481,7 +481,22 @@ class Executor:
     def _trash(self, row: jn.OpRow) -> dict:
         if not os.path.lexists(xp(row.src)):
             raise FileNotFoundError(2, "source_missing", row.src)
+        keep = row.extra.get("keep")
+        if keep and not row.is_dir:
+            self._check_kept(row, keep)
         return trash_mod.trash(row.src, row.session_id, row.size if not row.is_dir else None)
+
+    @staticmethod
+    def _check_kept(row: jn.OpRow, keep: str) -> None:
+        """Doublon mis à la corbeille : le fichier conservé doit toujours exister (et, pour un doublon exact,
+        être encore identique). Entre l'analyse et le clic, il a pu être supprimé ou modifié."""
+        if nkey(row.src) == nkey(keep) or not os.path.isfile(xp(keep)):
+            raise fileops.VerifyError("kept_missing")
+        if row.rule == "duplicate":
+            size = os.stat(xp(row.src)).st_size
+            if os.stat(xp(keep)).st_size != size \
+                    or hashing.partial_hash(keep, size) != hashing.partial_hash(row.src, size):
+                raise fileops.VerifyError("not_identical")
 
     def _hardlink(self, row: jn.OpRow) -> dict:
         keep = row.extra.get("keep") or row.dst
