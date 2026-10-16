@@ -361,3 +361,121 @@ def test_session_of_live_process_is_not_offered_for_recovery(engine, tmp_path):
         proc.kill()
         proc.wait()
     assert sid in [s.id for s in engine.journal.unfinished_sessions()]
+
+
+def test_cross_volume_locked_source_leaves_no_copy(engine, tmp_path, monkeypatch):
+    """Autre disque, fichier ouvert par un programme (lisible mais pas supprimable) :
+    pas de copie fantôme laissée à la destination, l'original reste intact."""
+    import win32file
+
+    monkeypatch.setattr(Executor, "_same_volume", lambda self, a, b: False)
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    (src / "libre.txt").write_text("a")
+    locked = src / "ouvert.txt"
+    locked.write_text("b")
+    handle = win32file.CreateFile(str(locked), win32file.GENERIC_READ, win32file.FILE_SHARE_READ, None,
+                                  win32file.OPEN_EXISTING, 0, None)
+    try:
+        scan, plan = engine.analyze(_request(engine, src, dst), TaskControl())
+        ex = Executor(engine.journal, TaskControl(), ExecOptions(lock_retries=2, lock_delay=0.1))
+        result = ex.run_plan(plan)
+    finally:
+        handle.Close()
+    assert result.failed == 1
+    assert locked.read_text() == "b"
+    names = [os.path.basename(f) for f in all_files(dst)]
+    assert names == ["libre.txt"], names
+    engine.undo(result.session_id, TaskControl())
+    assert sorted(os.listdir(src)) == ["libre.txt", "ouvert.txt"]
+
+
+def test_overwrite_failure_puts_existing_file_back(engine, tmp_path, monkeypatch):
+    """« Remplacer » : si le déplacement échoue, le fichier qui devait être remplacé revient à sa place."""
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    (src / "notes.txt").write_text("nouveau")
+    target = dst / "Documents" / "Textes"
+    target.mkdir(parents=True)
+    (target / "notes.txt").write_text("ancien")
+
+    def broken(*a, **k):
+        raise PermissionError(5, "Accès refusé")
+
+    monkeypatch.setattr(fileops, "move_file", broken)
+    req = _request(engine, src, dst)
+    req.profile["conflict"] = "overwrite"
+    engine.config.set("conflict", "overwrite", save=False)
+    scan, plan = engine.analyze(req, TaskControl())
+    assert any(op.replaces for op in plan.ops)
+    result = engine.execute(plan, TaskControl())
+    assert result.failed == 1
+    assert (target / "notes.txt").read_text() == "ancien"
+    assert (src / "notes.txt").read_text() == "nouveau"
+
+
+def test_undo_finds_files_moved_again_later(engine, tmp_path):
+    """Session A range src -> dst, puis session B déplace dst -> dst2 : annuler A ramène quand même
+    les fichiers à leur place d'origine (on suit le déplacement fait par B)."""
+    src, dst, dst2 = tmp_path / "src", tmp_path / "dst", tmp_path / "dst2"
+    src.mkdir()
+    (src / "facture.pdf").write_bytes(b"%PDF-1.4 facture")
+    (src / "notes.txt").write_text("notes")
+    _scan, _plan, a = _sort(engine, src, dst)
+    assert a.failed == 0
+    _scan, _plan, b = _sort(engine, dst, dst2)
+    assert b.failed == 0 and not list(dst.rglob("*.*"))
+    undo = engine.undo(a.session_id, TaskControl())
+    assert undo.failed == 0, undo.errors
+    assert sorted(os.listdir(src)) == ["facture.pdf", "notes.txt"]
+
+
+def test_undo_can_be_retried_after_locked_file(engine, tmp_path):
+    """Annulation partielle (fichier ouvert dans un programme) : on peut relancer l'annulation ensuite."""
+    import win32file
+
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    (src / "a.txt").write_text("a")
+    (src / "b.txt").write_text("b")
+    _scan, _plan, result = _sort(engine, src, dst)
+    sorted_b = next(dst.rglob("b.txt"))
+    handle = win32file.CreateFile(str(sorted_b), win32file.GENERIC_READ, 0, None, win32file.OPEN_EXISTING, 0, None)
+    try:
+        first = engine.undo(result.session_id, TaskControl())
+    finally:
+        handle.Close()
+    assert first.failed == 1 and first.errors[0][1] == "locked"
+    assert first.status == jn.S_PARTIAL_UNDO
+    second = engine.undo(result.session_id, TaskControl())
+    assert second.failed == 0 and second.status == jn.S_UNDONE
+    assert sorted(os.listdir(src)) == ["a.txt", "b.txt"]
+
+
+def test_overwrite_interrupted_by_power_cut_is_undone(engine, tmp_path, monkeypatch):
+    """Coupure juste après la mise à la corbeille du fichier à remplacer : l'annulation le remet."""
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    (src / "notes.txt").write_text("nouveau")
+    target = dst / "Documents" / "Textes"
+    target.mkdir(parents=True)
+    (target / "notes.txt").write_text("ancien")
+    engine.config.set("conflict", "overwrite", save=False)
+    req = _request(engine, src, dst)
+    req.profile["conflict"] = "overwrite"
+    _scan, plan = engine.analyze(req, TaskControl())
+
+    def power_cut(*a, **k):
+        engine.journal._pending.clear()
+        raise KeyboardInterrupt("coupure")
+
+    monkeypatch.setattr(fileops, "move_file", power_cut)
+    monkeypatch.setattr(Executor, "_put_back_replaced", lambda self, row, replaced: None)  # pas le temps
+    with pytest.raises(KeyboardInterrupt):
+        Executor(engine.journal, TaskControl(), ExecOptions(threads=1)).run_plan(plan)
+    assert not (target / "notes.txt").exists()  # l'ancien est à la corbeille
+    sid = engine.journal.unfinished_sessions()[0].id
+    undo = engine.undo(sid, TaskControl())
+    assert undo.failed == 0, undo.errors
+    assert (target / "notes.txt").read_text() == "ancien"
+    assert (src / "notes.txt").read_text() == "nouveau"

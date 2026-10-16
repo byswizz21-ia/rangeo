@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
 import xxhash
 
 from . import hashing
-from .fsutil import clear_readonly, copy_metadata, nkey, unique_name, xp
+from .fsutil import clear_readonly, copy_metadata, ensure_deletable, nkey, unique_name, xp
 from .models import Cancelled, TaskControl
 
 log = logging.getLogger(__name__)
@@ -117,8 +118,17 @@ def move_file(src: str, dst: str, same_volume: bool, tag: str, control: TaskCont
     if same_volume:
         os.rename(xp(src), xp(dst))
         return {"mode": "rename"}
+    ensure_deletable(src)  # fichier ouvert ailleurs : on le saura avant de copier
     digest = copy_file_verified(src, dst, tag, control)
-    remove_file(src)
+    try:
+        remove_file(src)
+    except BaseException:
+        # l'original n'a finalement pas pu être supprimé : on retire la copie, rien n'a changé
+        try:
+            remove_file(dst)
+        except OSError:
+            log.warning("Copie non retirée après échec de suppression de l'original : %s", dst)
+        raise
     return {"mode": "copy", "hash": digest}
 
 
@@ -194,8 +204,23 @@ def move_tree(src: str, dst: str, same_volume: bool, tag: str, control: TaskCont
     if same_volume:
         os.rename(xp(src), xp(dst))
         return {"mode": "rename"}
+    for rel, files in _walk_files(src):  # un fichier ouvert ailleurs : on le saura avant de copier
+        for name in files:
+            ensure_deletable(os.path.join(src, rel, name) if rel else os.path.join(src, name))
     count = copy_tree_to(src, dst, tag, control, on_copied)
-    remove_tree(src)  # uniquement après la copie complète et vérifiée
+    # uniquement après la copie complète et vérifiée ; la copie est désormais la référence
+    for attempt in range(3):
+        try:
+            remove_tree(src)
+            break
+        except OSError:
+            if attempt == 2:
+                # quelques fichiers de l'original n'ont pas pu être supprimés (ouverts entre-temps) :
+                # le dossier est bien rangé, il reste des doublons de ces fichiers à l'ancien emplacement
+                remove_tree(src, ignore_errors=True)
+                log.warning("Restes non supprimés après déplacement : %s", src)
+                return {"mode": "copy", "files": count, "leftovers": True}
+            time.sleep(0.5)
     return {"mode": "copy", "files": count}
 
 

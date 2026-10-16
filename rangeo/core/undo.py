@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass, field
 
 from . import fileops, journal as jn, trash as trash_mod
-from .fsutil import existing_ancestor, volume_id, xp
+from .fsutil import existing_ancestor, is_within, nkey, volume_id, xp
 from .models import (
     OP_COPY,
     OP_HARDLINK,
@@ -16,6 +16,9 @@ from .models import (
     OP_RMDIR,
     OP_TRASH,
     ST_DONE,
+    ST_FAILED,
+    ST_PLANNED,
+    ST_RUNNING,
     ST_UNDO_FAILED,
     ST_UNDONE,
     Cancelled,
@@ -74,6 +77,73 @@ def _move_back(current: str, original: str, is_dir: bool, tag: str, control: Tas
     raise FileExistsError(17, "target_exists", original)
 
 
+def _undo_error_code(exc: BaseException) -> str:
+    """Code d'erreur traduisible (mêmes codes que pendant le rangement)."""
+    from .executor import error_code
+
+    special = getattr(exc, "strerror", None)
+    if special in ("moved_file_missing", "not_in_recycle_bin", "target_exists"):
+        return special
+    return error_code(exc)
+
+
+class _LaterMoves:
+    """Retrouve un élément rangé puis déplacé à nouveau par une session plus récente
+    (ex. : le dossier de rangement a lui-même été rangé ou renommé ensuite)."""
+
+    def __init__(self, journal: jn.Journal, session_id: int):
+        self.journal = journal
+        self.session_id = session_id
+        self._files: dict[str, list[tuple[int, str]]] | None = None
+        self._dirs: list[tuple[int, str, str]] = []
+
+    def _load(self) -> None:
+        self._files = {}
+        for op_id, src, dst, is_dir in self.journal.later_moves(self.session_id):
+            if is_dir:
+                self._dirs.append((op_id, src, dst))
+            self._files.setdefault(nkey(src), []).append((op_id, dst))
+
+    def locate(self, path: str) -> str | None:
+        if self._files is None:
+            self._load()
+        current, last = path, 0
+        for _ in range(100):
+            best: tuple[int, str] | None = None
+            for op_id, dst in self._files.get(nkey(current), []):
+                if op_id > last:
+                    best = (op_id, dst)
+                    break
+            for op_id, src, dst in self._dirs:  # rangé à l'intérieur d'un dossier déplacé ensuite
+                if op_id > last and (best is None or op_id < best[0]) and is_within(current, src) \
+                        and nkey(current) != nkey(src):
+                    best = (op_id, os.path.join(dst, os.path.relpath(current, src)))
+                    break
+            if best is None:
+                return None
+            last, current = best
+            if os.path.lexists(xp(current)):
+                return current
+        return None
+
+
+def _restore_pending_replaced(journal: jn.Journal, session_id: int) -> None:
+    """« Remplacer » interrompu (coupure) entre la mise à la corbeille de l'ancien fichier et le déplacement :
+    l'ancien fichier revient à sa place."""
+    for r in journal.ops(session_id, (ST_PLANNED, ST_RUNNING, ST_FAILED)):
+        replaced = r.extra.get("replaced")
+        if r.op != OP_MOVE or not replaced or not r.dst or os.path.lexists(xp(r.dst)):
+            continue
+        if not r.src or not os.path.lexists(xp(r.src)):
+            continue  # le déplacement a eu lieu : traité comme une opération terminée
+        try:
+            trash_mod.restore(r.dst, replaced)
+            extra = {k: v for k, v in r.extra.items() if k != "replaced"}
+            journal.mark(r.id, r.state, extra=extra)
+        except Exception:
+            log.exception("Fichier remplacé non restauré : %s", r.dst)
+
+
 def undo_session(journal: jn.Journal, session_id: int, control: TaskControl | None = None,
                  only_ids: set[int] | None = None, index=None) -> UndoResult:
     """Annule les opérations terminées d'une session, de la plus récente à la plus ancienne."""
@@ -81,7 +151,10 @@ def undo_session(journal: jn.Journal, session_id: int, control: TaskControl | No
     result = UndoResult()
     _vol_cache.clear()
     _ready.clear()
-    rows = journal.ops(session_id, (ST_DONE,)) + _effectively_done(journal, session_id)
+    _restore_pending_replaced(journal, session_id)
+    # ST_UNDO_FAILED : une annulation précédente avait échoué (fichier ouvert…) : on réessaie
+    rows = journal.ops(session_id, (ST_DONE, ST_UNDO_FAILED)) + _effectively_done(journal, session_id)
+    later = _LaterMoves(journal, session_id)
     if only_ids is not None:
         rows = [r for r in rows if r.id in only_ids]
     rows.sort(key=lambda r: (r.seq, r.id), reverse=True)
@@ -104,7 +177,7 @@ def undo_session(journal: jn.Journal, session_id: int, control: TaskControl | No
             control.advance(0, current=r.dst or r.src or "")
             tag = f"u{r.session_id}-{r.id}"
             try:
-                restored = _undo_one(r, tag, control)
+                restored = _undo_one(r, tag, control, later)
                 journal.mark(r.id, ST_UNDONE)
                 result.undone += 1
                 if restored and not r.is_dir:
@@ -112,9 +185,10 @@ def undo_session(journal: jn.Journal, session_id: int, control: TaskControl | No
             except Cancelled:
                 raise
             except Exception as exc:
-                code = getattr(exc, "strerror", None) or str(exc)
-                log.warning("Annulation impossible (op %s) : %s", r.id, code)
-                journal.mark(r.id, ST_UNDO_FAILED, error=code)
+                code = _undo_error_code(exc)
+                detail = getattr(exc, "strerror", None) or str(exc)
+                log.warning("Annulation impossible (op %s) : %s", r.id, detail)
+                journal.mark(r.id, ST_UNDO_FAILED, error=f"{code}|{detail}")
                 result.failed += 1
                 result.errors.append((r.src or r.dst or "", code))
                 control.error()
@@ -146,7 +220,8 @@ def undo_session(journal: jn.Journal, session_id: int, control: TaskControl | No
             index.ignore_files(rows)
         except Exception:
             log.exception("Index : fichiers restaurés")
-    remaining = journal.counts(session_id).get(ST_DONE, 0)
+    counts = journal.counts(session_id)
+    remaining = counts.get(ST_DONE, 0) + counts.get(ST_UNDO_FAILED, 0)
     result.status = jn.S_UNDONE if result.failed == 0 and remaining == 0 else jn.S_PARTIAL_UNDO
     session = journal.session(session_id)
     summary = dict(session.summary) if session else {}
@@ -172,14 +247,16 @@ def _effectively_done(journal: jn.Journal, session_id: int) -> list[jn.OpRow]:
     return out
 
 
-def _undo_one(r: jn.OpRow, tag: str, control: TaskControl) -> str | None:
+def _undo_one(r: jn.OpRow, tag: str, control: TaskControl, later: _LaterMoves | None = None) -> str | None:
     """Annule une opération. Renvoie le chemin du fichier remis en place (ou None)."""
     if r.op == OP_MOVE:
         current = r.dst
         if not os.path.lexists(xp(current)):
             if os.path.lexists(xp(r.src)):
                 return None  # déjà revenu à sa place
-            raise FileNotFoundError(2, "moved_file_missing", current)
+            current = later.locate(r.dst) if later is not None else None
+            if current is None:
+                raise FileNotFoundError(2, "moved_file_missing", r.dst)
         restored = _move_back(current, r.src, r.is_dir, tag, control)
         replaced = r.extra.get("replaced")
         if replaced:

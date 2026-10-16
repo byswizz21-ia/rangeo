@@ -35,6 +35,12 @@ STATUS_LEVEL = {
 }
 
 
+def _error_text(code: str) -> str:
+    key = f"error.{code}"
+    text = tr(key)
+    return code if text == key else text
+
+
 class OpsTableModel(QAbstractTableModel):
     COLS = ("op", "state", "src", "dst", "size", "error")
 
@@ -87,7 +93,8 @@ class OpsTableModel(QAbstractTableModel):
                 if not r.error:
                     return ""
                 code, _, detail = r.error.partition("|")
-                return tr(f"error.{code}") if f"error.{code}" != tr(f"error.{code}") else r.error
+                text = _error_text(code)
+                return text if text != code else r.error
         elif role == Qt.ForegroundRole:
             c = theme.colors()
             if r.state in ("failed", "undo_failed"):
@@ -259,7 +266,9 @@ class HistoryPage(QWidget):
             parts.append(tr("history.destination", path=s.destination))
         self.d_summary.setText("<br>".join(parts))
         self.model.set_rows(self.ctx.engine.journal.ops(s.id))
-        undoable = counts.get("done", 0) > 0 and s.status not in ("running", "paused", "undone")
+        # « undo_failed » : une annulation précédente a échoué (fichier ouvert…), on peut réessayer
+        undoable = counts.get("done", 0) + counts.get("undo_failed", 0) > 0 \
+            and s.status not in ("running", "paused", "undone")
         self.undo_btn.setEnabled(undoable and not busy)
         self.resume_btn.setEnabled(s.status in ("cancelled", "interrupted") and counts.get("planned", 0) > 0
                                    and not busy)
@@ -324,7 +333,7 @@ class HistoryPage(QWidget):
 
         def done(result):
             if result.failed:
-                details = "\n".join(f"{p} — {e}" for p, e in result.errors[:200])
+                details = "\n".join(f"{p} — {_error_text(e)}" for p, e in result.errors[:200])
                 error(self, tr("history.undo_partial"), tr("history.undo_partial_text", n=result.failed), details)
             else:
                 info(self, tr("history.undo_done"), tr("history.undo_done_text", n=fmt_int(result.undone)))

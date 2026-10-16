@@ -282,6 +282,15 @@ class Journal:
                 ).fetchall()
         return [OpRow.from_row(r) for r in rows]
 
+    def later_moves(self, session_id: int) -> list[tuple[int, str, str, bool]]:
+        """Déplacements réussis des sessions postérieures : (id, source, destination, dossier ?)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, src, dst, is_dir FROM operations WHERE session_id > ? AND op = 'move' "
+                "AND state = 'done' AND src IS NOT NULL AND dst IS NOT NULL ORDER BY id", (session_id,)
+            ).fetchall()
+        return [(r[0], r[1], r[2], bool(r[3])) for r in rows]
+
     def counts(self, session_id: int) -> dict[str, int]:
         with self._lock:
             self.flush()

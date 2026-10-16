@@ -244,7 +244,9 @@ if IS_WINDOWS:
     _FILE_WRITE_ATTRIBUTES = 0x100
     _FILE_SHARE_ALL = 0x1 | 0x2 | 0x4
     _OPEN_EXISTING = 3
+    _DELETE = 0x00010000
     _FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+    _FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
     _INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF
 
 
@@ -265,6 +267,23 @@ def set_creation_time(path: str, ts: float) -> bool:
         return bool(_k32.SetFileTime(handle, ctypes.byref(ft), None, None))
     finally:
         _k32.CloseHandle(handle)
+
+
+def ensure_deletable(path: str) -> None:
+    """Vérifie, AVANT une copie vers un autre disque, que l'original pourra être supprimé ensuite.
+
+    Lève l'erreur « fichier ouvert dans un autre programme » si un programme le garde ouvert sans
+    autoriser sa suppression : sinon on copierait pour rien et une copie resterait à la destination."""
+    if not IS_WINDOWS:
+        return
+    handle = _k32.CreateFileW(xp(path), _DELETE, _FILE_SHARE_ALL, None, _OPEN_EXISTING,
+                              _FILE_FLAG_BACKUP_SEMANTICS | _FILE_FLAG_OPEN_REPARSE_POINT, None)
+    if handle in (None, _INVALID_HANDLE):
+        err = ctypes.get_last_error()
+        if err in (ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION):
+            raise OSError(0, "in_use", path, err)
+        return  # autre souci (droits…) : l'opération elle-même le signalera
+    _k32.CloseHandle(handle)
 
 
 def get_attributes(path: str) -> int:

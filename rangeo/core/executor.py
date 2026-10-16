@@ -361,6 +361,9 @@ class Executor:
             extra = dict(row.extra)
             extra.update(info)
             self.journal.mark(row.id, ST_DONE, extra=extra, dst=final)
+            if info.get("leftovers"):
+                with self._result_lock:
+                    result.errors.append((row.src or "", "source_leftovers", ""))
             nbytes = row.size if info.get("mode") != "copy" and row.op in (OP_MOVE,) else 0
             self.control.advance(1, nbytes)
         except Cancelled:
@@ -411,6 +414,26 @@ class Executor:
             if not os.path.lexists(xp(src)):
                 raise FileNotFoundError(2, "source_missing", src)
             info["replaced"] = trash_mod.trash(dst, row.session_id)
+            # noté tout de suite : après une coupure, l'annulation saura remettre le fichier remplacé
+            self.journal.mark(row.id, ST_RUNNING, extra={**row.extra, "replaced": info["replaced"]}, immediate=True)
+        try:
+            return self._move_to(row, info)
+        except BaseException:
+            if info.get("replaced"):
+                self._put_back_replaced(row, info["replaced"])
+            raise
+
+    def _put_back_replaced(self, row: jn.OpRow, replaced: dict) -> None:
+        """Le déplacement a échoué : le fichier qui devait être remplacé revient à sa place."""
+        try:
+            if not os.path.lexists(xp(row.dst)):
+                trash_mod.restore(row.dst, replaced)
+                self.journal.mark(row.id, ST_RUNNING, extra=dict(row.extra), immediate=True)
+        except Exception:
+            log.exception("Impossible de remettre en place le fichier remplacé : %s", row.dst)
+
+    def _move_to(self, row: jn.OpRow, info: dict) -> tuple[dict, str]:
+        src, dst = row.src, row.dst
         folder = os.path.dirname(dst)
         self._ensure_dir(folder, row.seq)
         same = self._same_volume(src, folder)
