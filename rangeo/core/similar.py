@@ -264,6 +264,26 @@ def _image_pairs(sigs: list[int], threshold: int, control: TaskControl) -> list[
     return pairs
 
 
+def split_chains(members: list[int], dist, limit: float, quality) -> list[list[int]]:
+    """Évite les groupes « en chaîne » : A ressemble à B, B à C, mais A et C sont différents
+    (rafale de photos, panorama…). Chaque fichier doit ressembler DIRECTEMENT au meilleur fichier de son
+    groupe (celui qui sera normalement gardé) ; sinon il forme ou rejoint un autre groupe."""
+    reps: list[tuple[int, list[int]]] = []
+    for i in sorted(members, key=lambda k: (-quality(k), k)):
+        for rep, group in reps:
+            if dist(rep, i) <= limit:
+                group.append(i)
+                break
+        else:
+            reps.append((i, [i]))
+    return [sorted(g) for _rep, g in reps if len(g) > 1]
+
+
+def _video_distance(a: list[int], b: list[int]) -> float:
+    n = min(len(a), len(b))
+    return sum(bin(a[k] ^ b[k]).count("1") for k in range(n)) / n if n else 64.0
+
+
 def _window_pairs(durations: list[float], tolerance) -> list[tuple[int, int]]:
     """Paires de fichiers de durées voisines (pour limiter les comparaisons coûteuses)."""
     order = sorted(range(len(durations)), key=lambda i: durations[i])
@@ -352,24 +372,27 @@ def find_similar(entries: list[FileEntry], opt: SimilarOptions, control: TaskCon
     if len(usable) < 2:
         return []
     uf = _UnionFind(len(usable))
+    vals = [sigs[id(e)] for e in usable]
     if opt.mode == "images":
-        for i, j, d in _image_pairs([sigs[id(e)] for e in usable], IMAGE_THRESHOLDS[opt.sensitivity], control):
+        limit = IMAGE_THRESHOLDS[opt.sensitivity]
+        for i, j, d in _image_pairs(vals, limit, control):
             uf.union(i, j)
+
+        def dist(i, j):
+            return (vals[i] ^ vals[j]).bit_count()
     elif opt.mode == "videos":
-        vals = [sigs[id(e)] for e in usable]
         pairs = _window_pairs([v[0] for v in vals], lambda d: max(2.0, d * 0.02))
         control.set_stage("similar_compare", total=len(pairs))
         limit = VIDEO_THRESHOLDS[opt.sensitivity]
         for i, j in pairs:
             control.checkpoint()
-            a, b = vals[i][1], vals[j][1]
-            n = min(len(a), len(b))
-            mean = sum(bin(a[k] ^ b[k]).count("1") for k in range(n)) / n
-            if mean <= limit:
+            if _video_distance(vals[i][1], vals[j][1]) <= limit:
                 uf.union(i, j)
             control.advance(1)
+
+        def dist(i, j):
+            return _video_distance(vals[i][1], vals[j][1])
     else:
-        vals = [sigs[id(e)] for e in usable]
         pairs = _window_pairs([v[0] for v in vals], lambda d: max(2.0, d * 0.03))
         control.set_stage("similar_compare", total=len(pairs))
         limit = AUDIO_THRESHOLDS[opt.sensitivity]
@@ -379,12 +402,16 @@ def find_similar(entries: list[FileEntry], opt: SimilarOptions, control: TaskCon
             if audio_distance(a[:220], b[:220], 6) < 0.42 and audio_distance(a, b) <= limit:
                 uf.union(i, j)
             control.advance(1)
+
+        def dist(i, j):
+            return audio_distance(vals[i][1], vals[j][1])
+    if opt.mode == "videos":
+        for i, e in enumerate(usable):
+            e.meta.setdefault("pixels", vals[i][2])
     out = []
     for members in uf.groups():
-        for i in members:
-            if opt.mode == "videos":
-                usable[i].meta.setdefault("pixels", sigs[id(usable[i])][2])
-        out.append([usable[i] for i in members])
+        for group in split_chains(members, dist, limit, lambda k: quality_of(usable[k])):
+            out.append([usable[i] for i in group])
     return out
 
 

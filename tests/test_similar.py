@@ -79,3 +79,19 @@ def test_huge_image_is_not_decoded(tmp_path, monkeypatch):
     assert similar.image_signature(str(path)) is not None
     monkeypatch.setattr(metadata, "MAX_DECODE_PIXELS", 100_000)
     assert similar.image_signature(str(path)) is None
+
+
+def test_chains_are_split():
+    """A≈B et B≈C mais A très différent de C (rafale, panorama) : pas un seul groupe A-B-C."""
+    from rangeo.core.similar import split_chains
+
+    pos = {0: 0, 1: 10, 2: 20, 3: 30, 4: 2}  # « distance » = écart de position ; seuil 12
+    quality = {0: 5, 1: 9, 2: 1, 3: 1, 4: 3}
+
+    def dist(a, b):
+        return abs(pos[a] - pos[b])
+
+    groups = split_chains([0, 1, 2, 3, 4], dist, 12, lambda k: quality[k])
+    # meilleur fichier = 1 (qualité 9) : 0, 2 et 4 lui ressemblent directement ; 3 est trop loin de 1
+    assert groups == [[0, 1, 2, 4]]
+    assert all(dist(1, k) <= 12 for k in groups[0])
