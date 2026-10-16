@@ -45,3 +45,29 @@ def test_undo_of_auto_sort_is_respected(engine, tmp_path, monkeypatch):
     doc.write_bytes(b"%PDF-1.4 test modifie")
     w._process([str(doc)])
     assert not doc.exists()
+
+
+def test_locked_file_is_retried_later(engine, tmp_path, monkeypatch):
+    """Fichier encore ouvert au moment du rangement automatique : retenté plus tard, pas oublié."""
+    import win32file
+
+    from rangeo.core.executor import ExecOptions
+
+    monkeypatch.setattr(watcher, "RETRY_DELAY", 0.0)
+    monkeypatch.setattr(engine, "exec_options", lambda cleanup=None: ExecOptions(cleanup_empty=False,
+                                                                                lock_retries=0))
+    folder = tmp_path / "Telechargements"
+    folder.mkdir()
+    doc = folder / "Facture.pdf"
+    doc.write_bytes(b"%PDF-1.4 test")
+    w = watcher.FolderWatcher(engine, str(folder), "downloads", recursive=False, delay=2)
+    handle = win32file.CreateFile(str(doc), win32file.GENERIC_READ, 0, None, win32file.OPEN_EXISTING, 0, None)
+    try:
+        w._process([str(doc)])
+    finally:
+        handle.Close()
+    assert doc.exists()
+    assert str(doc) in w._pending and w._retries[str(doc)] == 1
+    w._process([str(doc)])  # nouvel essai : le fichier est libre
+    assert not doc.exists()
+    assert str(doc) not in w._retries

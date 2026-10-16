@@ -16,6 +16,8 @@ from .models import TaskControl
 log = logging.getLogger(__name__)
 
 STABLE_SECONDS = 3.0  # un fichier doit garder la même taille pendant ce temps
+RETRY_DELAY = 30.0  # fichier encore ouvert, disque de destination absent… : nouvel essai après 30 s, 60 s…
+MAX_RETRIES = 5
 
 
 @dataclass
@@ -61,6 +63,7 @@ class FolderWatcher:
         self.delay = max(2.0, float(delay))
         self.on_event = on_event
         self._pending: dict[str, tuple[int, float]] = {}  # chemin -> (taille, depuis)
+        self._retries: dict[str, int] = {}  # chemin -> nombre d'essais ratés
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._observer = None
@@ -163,6 +166,24 @@ class FolderWatcher:
                         self._pending.pop(p, None)
                 self._process(ready)
 
+    def _requeue(self, paths: list[str]) -> None:
+        """Échec passager : le fichier sera retenté plus tard (sinon il resterait là jusqu'au redémarrage)."""
+        now = time.monotonic()
+        with self._lock:
+            for p in paths:
+                n = self._retries.get(p, 0) + 1
+                try:
+                    size = os.stat(xp(p)).st_size
+                except OSError:
+                    self._retries.pop(p, None)
+                    continue
+                if n > MAX_RETRIES:
+                    self._retries.pop(p, None)
+                    log.warning("Surveillance : abandon pour %s après %d essais", p, MAX_RETRIES)
+                    continue
+                self._retries[p] = n
+                self._pending[p] = (size, now + RETRY_DELAY * n)  # « depuis » dans le futur = attente
+
     def _process(self, paths: list[str]) -> None:
         paths = self._not_ignored(paths)
         if not paths:
@@ -183,7 +204,8 @@ class FolderWatcher:
                 recursive=self.recursive,
             )
             if self.engine.check_request(req):
-                log.warning("Surveillance %s : configuration invalide", self.folder)
+                log.warning("Surveillance %s : configuration invalide (destination absente ?)", self.folder)
+                self._requeue(paths)
                 return
             control = TaskControl()
             scan_result, plan = self.engine.analyze(req, control)
@@ -201,6 +223,13 @@ class FolderWatcher:
                         op.enabled = False
             result = self.engine.execute(plan, control, kind="watch", profile=profile.get("name", ""),
                                          cleanup=False)
+            retry = [path for path, code, _detail in result.errors if code in ("locked", "device_gone", "disk_full")]
+            if retry:
+                self._requeue(retry)
+            with self._lock:
+                for op in plan.active_ops():
+                    if op.src not in retry:
+                        self._retries.pop(op.src, None)
             event = WatchEvent(time.time(), self.folder, result.files, result.failed, result.session_id,
                                files=[os.path.basename(op.src) for op in plan.active_ops()][:20])
             if self.on_event:
@@ -210,6 +239,7 @@ class FolderWatcher:
                     log.exception("Notification de surveillance")
         except Exception:
             log.exception("Erreur pendant le rangement automatique de %s", self.folder)
+            self._requeue(paths)
         finally:
             self.busy.release()
 

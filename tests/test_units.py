@@ -199,3 +199,20 @@ def test_music_multi_disc_and_featuring():
     assert next(r for r in migrate_rules(old, "fr") if r["builtin"] == "music")["rename"] == music["rename"]
     custom = [{**music, "rename": "{titre}"}]
     assert next(r for r in migrate_rules(custom, "fr") if r["builtin"] == "music")["rename"] == "{titre}"
+
+
+def test_metadata_accents_give_one_folder():
+    """« Beyoncé » écrit avec un accent combiné (Mac) ou précomposé (Windows) : un seul dossier."""
+    import unicodedata
+
+    from rangeo.core.defaults import default_rules
+
+    music = next(r for r in default_rules("fr") if r["builtin"] == "music")
+    root = os.path.join("D:" + os.sep, "R")
+    folders = set()
+    for form in ("NFC", "NFD"):
+        e = FileEntry(dir=os.path.join("C:" + os.sep, "in"), name="x.mp3", ext="mp3", size=1, mtime=0, ctime=0)
+        e.kind = "music"
+        e.meta = {"artist": unicodedata.normalize(form, "Beyoncé"), "album": unicodedata.normalize(form, "Lemonade")}
+        folders.add(rules.render_target_dir(music["target"], e, root, "fr"))
+    assert len(folders) == 1

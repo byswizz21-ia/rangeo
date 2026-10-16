@@ -6,6 +6,7 @@ import datetime as _dt
 import os
 import re
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass
 
@@ -362,7 +363,20 @@ def template_values(entry: FileEntry, lang: str, kind_label=None) -> dict[str, s
     values["city"] = meta.get("city")
     values["product"] = meta.get("product")
     values["version"] = meta.get("version")
-    return {k: (str(v) if v not in (None, "") else None) for k, v in values.items()}
+    out: dict[str, str | None] = {}
+    for key, value in values.items():
+        if value in (None, ""):
+            out[key] = None
+        elif key in _ORIGINAL_NAMES:
+            out[key] = str(value)
+        else:
+            # accents écrits de deux façons (étiquettes venant d'un Mac, de Windows…) : une seule forme,
+            # sinon deux dossiers « Beyoncé » d'apparence identique
+            out[key] = unicodedata.normalize("NFC", str(value))
+    return out
+
+
+_ORIGINAL_NAMES = {"stem", "filename", "folder", "ext"}  # noms d'origine : jamais modifiés
 
 
 def _fallback(canonical: str, values: dict, lang: str) -> str | None:
