@@ -171,6 +171,9 @@ def main(argv: list[str] | None = None) -> int:
     code = app.exec()
     try:
         ctx.watch.stop_all()
+        from .ui import workers
+
+        workers.shutdown()  # tâche en cours : arrêtée proprement avant de fermer le journal
     finally:
         engine.close()
     log.info("Arrêt de Rangeo")

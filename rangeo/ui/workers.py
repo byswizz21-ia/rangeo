@@ -78,3 +78,26 @@ def run_task(fn, *args, on_done=None, on_error=None, **kwargs) -> Task:
 
 def any_running() -> bool:
     return any(t.running for t in list(_running))
+
+
+def shutdown(timeout: float = 30.0) -> bool:
+    """À la fermeture de Rangeo : arrête proprement les tâches en cours (annulation au prochain point sûr,
+    comme le bouton « Annuler ») et attend leur fin, pour ne pas couper une copie ni fermer le journal
+    pendant qu'il est utilisé. Renvoie False si une tâche n'a pas pu s'arrêter à temps."""
+    import time
+
+    from ..core.models import TaskControl
+
+    tasks = [t for t in list(_running) if t.running]
+    for t in tasks:
+        for value in list(t.args) + list(t.kwargs.values()):
+            if isinstance(value, TaskControl):
+                value.cancel()
+    deadline = time.monotonic() + timeout
+    for t in tasks:
+        if t.thread is not None:
+            t.thread.join(max(0.0, deadline - time.monotonic()))
+    stuck = [t for t in tasks if t.running]
+    if stuck:
+        log.warning("%d tâche(s) encore en cours à la fermeture", len(stuck))
+    return not stuck

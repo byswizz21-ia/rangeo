@@ -176,3 +176,31 @@ def test_full_ui_flow(ui, tmp_path):
 
     assert not [e for e in errors if e[0] != "dialog"], errors
     assert not [e for e in errors if e[0] == "dialog"], errors
+
+
+def test_running_task_is_stopped_cleanly_on_quit():
+    """Quitter pendant une tâche : elle est annulée à un point sûr et on attend sa fin."""
+    from PySide6.QtWidgets import QApplication
+
+    from rangeo.core.models import Cancelled, TaskControl
+    from rangeo.ui import workers
+
+    QApplication.instance() or QApplication([])
+
+    seen = []
+
+    def long_job(control):
+        try:
+            for _ in range(600):
+                control.checkpoint()
+                time.sleep(0.05)
+        except Cancelled:
+            seen.append("annulée proprement")
+            raise
+
+    control = TaskControl()
+    control.pause()  # même en pause
+    workers.run_task(long_job, control)
+    time.sleep(0.2)
+    assert workers.shutdown(10)
+    assert seen == ["annulée proprement"]
