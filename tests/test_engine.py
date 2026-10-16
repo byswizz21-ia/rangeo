@@ -491,3 +491,23 @@ def test_destination_equal_to_source_sorts_in_place(engine, tmp_path):
     assert result.failed == 0 and result.files == 2
     assert not (src / "facture.pdf").exists()
     assert len([p for p in src.rglob("*") if p.is_file()]) == 2
+
+
+def test_online_only_file_is_not_moved_out_of_onedrive(engine, tmp_path, monkeypatch):
+    """Fichier OneDrive « en ligne seulement » : le sortir du dossier OneDrive le téléchargerait."""
+    from rangeo.core import classify, fsutil
+
+    onedrive = tmp_path / "OneDrive"
+    onedrive.mkdir()
+    (onedrive / "rapport.pdf").write_bytes(b"%PDF-1.4 x")
+    monkeypatch.setenv("OneDrive", str(onedrive))
+    monkeypatch.setattr(classify, "is_cloud_placeholder", lambda attrs: True)
+    # destination hors de OneDrive : décoché
+    scan, plan = engine.analyze(_request(engine, onedrive, tmp_path / "dst"), TaskControl())
+    op = next(o for o in plan.ops if o.src.endswith("rapport.pdf"))
+    assert not op.enabled and op.note == "plan.cloud_only"
+    # rangement sur place, à l'intérieur de OneDrive : autorisé
+    scan, plan = engine.analyze(_request(engine, onedrive, "", in_place=True), TaskControl())
+    op = next(o for o in plan.ops if o.src.endswith("rapport.pdf"))
+    assert op.enabled, op.note
+    assert fsutil.cloud_root_of(str(onedrive / "a" / "b.txt")) == fsutil.norm(str(onedrive))

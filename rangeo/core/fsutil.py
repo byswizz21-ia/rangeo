@@ -205,6 +205,34 @@ def is_cloud_placeholder(attrs: int) -> bool:
     return bool(attrs & CLOUD_ATTRIBUTES)
 
 
+def cloud_roots() -> list[str]:
+    """Dossiers synchronisés connus (OneDrive personnel/professionnel, Dropbox, iCloud, Creative Cloud)."""
+    roots = []
+    for var in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial"):
+        value = os.environ.get(var)
+        if value:
+            roots.append(value)
+    home = os.environ.get("USERPROFILE")
+    if home:
+        for name in ("Dropbox", "iCloudDrive", "Creative Cloud Files", "Google Drive"):
+            roots.append(os.path.join(home, name))
+    out = []
+    for r in roots:
+        r = norm(r)
+        if r not in out:
+            out.append(r)
+    return out
+
+
+def cloud_root_of(path: str, roots: list[str] | None = None) -> str | None:
+    """Dossier synchronisé qui contient ``path`` (le plus précis), ou None."""
+    best = None
+    for root in cloud_roots() if roots is None else roots:
+        if is_within(path, root) and (best is None or len(root) > len(best)):
+            best = root
+    return best
+
+
 if IS_WINDOWS:
     _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 

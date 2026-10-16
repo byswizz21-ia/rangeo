@@ -11,6 +11,8 @@ from . import filetypes as ft
 from . import hashing
 from . import rules as rules_mod
 from .fsutil import (
+    cloud_root_of,
+    cloud_roots,
     disk_usage,
     existing_ancestor,
     human_size,
@@ -488,16 +490,20 @@ class Planner:
         opt = self.opt
         need: dict[int, int] = {}
         vol_path: dict[int, str] = {}
+        sync_roots = cloud_roots()
         for op in plan.ops:
             if not op.enabled or op.dst is None or op.op not in (OP_MOVE, OP_COPY):
                 continue
             src_vol = self.cache.volume(os.path.dirname(op.src))
             dst_vol = self.cache.volume(os.path.dirname(op.dst))
             op.cross_volume = op.op == OP_COPY or src_vol is None or src_vol != dst_vol
-            if op.cross_volume and op.entry is not None and op.entry.meta.get("cloud") and not op.note:
-                # le copier vers un autre disque obligerait à le télécharger depuis le cloud
-                op.enabled = False
-                op.note = "plan.cloud_only"
+            if op.entry is not None and op.entry.meta.get("cloud") and not op.note:
+                # le copier vers un autre disque, ou le sortir de son dossier OneDrive, obligerait
+                # à le télécharger depuis le cloud
+                root = cloud_root_of(op.src, sync_roots)
+                if op.cross_volume or (root is not None and not is_within(op.dst, root)):
+                    op.enabled = False
+                    op.note = "plan.cloud_only"
             if op.cross_volume:
                 if op.is_dir and op.entry is not None and op.entry.meta.get("size_partial"):
                     size, count = _bundle_size(op.src, self.control)
