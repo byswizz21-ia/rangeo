@@ -260,3 +260,23 @@ def test_more_dates_in_names():
     e = FileEntry(dir="C:\\x", name="a.pdf", size=1, mtime=315532800.0, ctime=1_700_000_000.0)  # 1980
     compute_date(e, ["oldest"])
     assert e.date == 1_700_000_000.0
+
+
+def test_index_prune_runs_at_most_weekly(tmp_path):
+    import time
+
+    from rangeo.core.index import MetaIndex
+
+    idx = MetaIndex(tmp_path / "index.db")
+    try:
+        idx.store_meta([("C:\\a.jpg", 1, 1.0, None, {"x": 1})])
+        idx._conn.execute("UPDATE files SET seen = ?", (time.time() - 400 * 86400,))
+        idx._conn.commit()
+        assert idx.prune(365) == 1
+        idx.store_meta([("C:\\b.jpg", 1, 1.0, None, {"x": 1})])
+        idx._conn.execute("UPDATE files SET seen = ?", (time.time() - 400 * 86400,))
+        idx._conn.commit()
+        assert idx.prune(365) == 0  # déjà fait cette semaine
+        assert idx.prune(365, every_days=0) == 1
+    finally:
+        idx.close()

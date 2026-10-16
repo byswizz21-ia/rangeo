@@ -50,6 +50,7 @@ class MetaIndex:
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS ignored (key TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL, "
             "created REAL NOT NULL) WITHOUT ROWID")
+        self._conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID")
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(files)")}
         if "sig" not in columns:  # V2 : empreintes des doublons ressemblants
             self._conn.execute("ALTER TABLE files ADD COLUMN sig TEXT")
@@ -191,12 +192,22 @@ class MetaIndex:
                     self._conn.execute("DELETE FROM files WHERE key = ?", (nkey(new),))
                     self._conn.execute("UPDATE files SET key = ? WHERE key = ?", (nkey(new), nkey(old)))
 
-    def prune(self, older_than_days: int = 180) -> int:
-        limit = time.time() - older_than_days * 86400
+    def prune(self, older_than_days: int = 180, every_days: float = 7) -> int:
+        """Oublie les fichiers non revus depuis longtemps. Au plus une fois par semaine : sur un gros
+        index, ce parcours complet retarderait chaque démarrage."""
+        now = time.time()
+        limit = now - older_than_days * 86400
         with self._lock:
+            row = self._conn.execute("SELECT value FROM meta WHERE key = 'last_prune'").fetchone()
+            try:
+                if row and now - float(row[0]) < every_days * 86400:
+                    return 0
+            except ValueError:
+                pass
             with self._conn:
                 cur = self._conn.execute("DELETE FROM files WHERE seen < ?", (limit,))
                 self._conn.execute("DELETE FROM ignored WHERE created < ?", (limit,))
+                self._conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('last_prune', ?)", (str(now),))
                 return cur.rowcount
 
     def clear(self) -> None:
