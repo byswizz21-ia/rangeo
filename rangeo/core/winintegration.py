@@ -17,6 +17,8 @@ log = logging.getLogger(__name__)
 CLASSES = r"Software\Classes"
 MENU_KEYS = (r"Directory\shell\Rangeo", r"Drive\shell\Rangeo", r"Directory\Background\shell\Rangeo")
 UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Rangeo"
+# entrée créée par l'installateur (installer\rangeo.iss, AppId)
+SETUP_UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{6B0E4C7A-3F2D-4B8E-9C61-5A7D2E1F0B93}_is1"
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _NO_WINDOW = 0x08000000
 
@@ -161,10 +163,11 @@ def uninstall(remove_data: bool = False, schedule_ids: list[str] | None = None) 
                 winreg.DeleteValue(key, "Rangeo")
         except OSError:
             pass
-    try:
-        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, UNINSTALL_KEY)
-    except OSError:
-        pass
+    for key_path in (UNINSTALL_KEY, SETUP_UNINSTALL_KEY):
+        try:
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path)
+        except OSError:
+            pass
     from . import scheduler
 
     for job_id in schedule_ids or []:
